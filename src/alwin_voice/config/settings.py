@@ -28,6 +28,7 @@ class AppConfig:
     context_turns: int
     tts_speaker: int | None
     tts_length_scale: float
+    audio_backend: str
 
 
 def _env_int(name: str, default: int) -> int:
@@ -85,6 +86,7 @@ def load_config() -> AppConfig:
             else None
         ),
         tts_length_scale=_env_float("ALWIN_TTS_LENGTH_SCALE", 1.0),
+        audio_backend=os.getenv("ALWIN_AUDIO_BACKEND", "auto").lower(),
     )
 
 
@@ -120,5 +122,8 @@ def validate_config(config: AppConfig) -> list[str]:
 
     if config.vad_silence_seconds <= 0:
         errors.append("ALWIN_VAD_SILENCE_SECONDS must be > 0")
+
+    if config.audio_backend not in {"auto", "unitree", "local"}:
+        errors.append("ALWIN_AUDIO_BACKEND must be one of: auto, unitree, local")
 
     return errors

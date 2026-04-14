@@ -71,6 +71,7 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_VAD_END_THRESHOLD` default: `0.008`
 - `ALWIN_VAD_SILENCE_SECONDS` default: `0.8`
 - `ALWIN_CONTEXT_TURNS` default: `12`
+- `ALWIN_AUDIO_BACKEND` default: `auto` (`auto`, `unitree`, `local`)
 
 Example:
 
@@ -130,6 +131,29 @@ Runtime flow per turn:
 7. LLM response is generated with rolling chat context
 8. Piper synthesizes response audio
 9. Response audio plays immediately
+
+## Unitree R1 backend (initial)
+
+The project now has a pluggable audio backend layer:
+
+- `local`: use `sounddevice` for microphone and speaker I/O
+- `unitree`: probe Unitree SDK2 Python modules and use robot backend path
+- `auto`: prefer Unitree backend when SDK is importable, otherwise fall back to local
+
+Current implementation status:
+
+- Unitree SDK capability probing is implemented.
+- Mic/speaker I/O still uses local `sounddevice` fallback while Unitree-specific
+	audio API integration is completed incrementally.
+
+To prepare Unitree SDK2 Python on robot:
+
+```bash
+pip install unitree-sdk2
+```
+
+Depending on image/runtime, you may also need CycloneDDS and `CYCLONEDDS_HOME`
+as documented by Unitree SDK2 Python.
 
 ## Tests
 

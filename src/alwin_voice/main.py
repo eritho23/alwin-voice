@@ -8,10 +8,7 @@ import sys
 import threading
 from pathlib import Path
 
-import sounddevice as sd
-
-from alwin_voice.audio.player import AudioPlayer
-from alwin_voice.audio.recorder import VADRecorder
+from alwin_voice.audio.backends import AudioBackend, build_audio_backend
 from alwin_voice.config.settings import AppConfig, load_config, validate_config
 from alwin_voice.llm.client import OllamaClient
 from alwin_voice.llm.context import ConversationContext
@@ -23,19 +20,6 @@ def _print_config_errors(errors: list[str]) -> None:
     print("Configuration errors:", file=sys.stderr)
     for err in errors:
         print(f"- {err}", file=sys.stderr)
-
-
-def _check_audio_devices() -> list[str]:
-    errors: list[str] = []
-    try:
-        default_input, default_output = sd.default.device
-        if default_input is None or default_input < 0:
-            errors.append("No default input device found")
-        if default_output is None or default_output < 0:
-            errors.append("No default output device found")
-    except Exception as exc:  # pylint: disable=broad-except
-        errors.append(f"Could not query audio devices: {exc}")
-    return errors
 
 
 def _detect_nvidia_gpu() -> bool:
@@ -80,7 +64,7 @@ def _extract_complete_sentences(text: str) -> tuple[list[str], str]:
 
 
 def _tts_worker(
-    tts: PiperEngine, player: AudioPlayer, tts_queue: queue.Queue[str | None]
+    tts: PiperEngine, audio: AudioBackend, tts_queue: queue.Queue[str | None]
 ) -> None:
     while True:
         chunk = tts_queue.get()
@@ -92,7 +76,7 @@ def _tts_worker(
         wav_path: Path | None = None
         try:
             wav_path = tts.synthesize_to_wav(chunk)
-            player.play_wav_file(wav_path)
+            audio.play_wav_file(wav_path)
         except Exception as exc:  # pylint: disable=broad-except
             print(f"TTS error: {exc}", file=sys.stderr)
         finally:
@@ -101,16 +85,12 @@ def _tts_worker(
 
 
 def run_chat_loop(config: AppConfig) -> None:
-    player = AudioPlayer(sample_rate=config.audio_sample_rate)
-    recorder = VADRecorder(
-        sample_rate=config.audio_sample_rate,
-        channels=config.audio_channels,
-        blocksize=config.audio_blocksize,
-        start_threshold=config.vad_start_threshold,
-        end_threshold=config.vad_end_threshold,
-        silence_seconds=config.vad_silence_seconds,
-        max_seconds=config.listen_max_seconds,
-    )
+    audio, notes = build_audio_backend(config)
+    for note in notes:
+        print(note)
+    for line in audio.diagnostics():
+        print(line)
+
     transcriber = FasterWhisperTranscriber(
         model_name=config.stt_model,
         device=config.stt_device,
@@ -131,15 +111,18 @@ def run_chat_loop(config: AppConfig) -> None:
 
     print("Voice chat started. Press Ctrl+C to stop.")
     while True:
-        player.play_tone(frequency_hz=880.0, duration_ms=120)
+        audio.play_listen_start()
         print("Listening...")
 
-        audio = recorder.record_utterance()
+        captured_audio = audio.record_utterance()
         print("Stopped listening. Processing...")
 
-        player.play_tone(frequency_hz=660.0, duration_ms=120)
+        audio.play_listen_end()
 
-        stt = transcriber.transcribe(audio=audio, sample_rate=config.audio_sample_rate)
+        stt = transcriber.transcribe(
+            audio=captured_audio,
+            sample_rate=config.audio_sample_rate,
+        )
         if not stt.text:
             print("No speech detected.")
             continue
@@ -151,7 +134,7 @@ def run_chat_loop(config: AppConfig) -> None:
         tts_queue: queue.Queue[str | None] = queue.Queue()
         worker = threading.Thread(
             target=_tts_worker,
-            args=(tts, player, tts_queue),
+            args=(tts, audio, tts_queue),
             daemon=True,
         )
         worker.start()
@@ -206,7 +189,9 @@ def main() -> int:
     cfg = load_config()
 
     errors = validate_config(cfg)
-    errors.extend(_check_audio_devices())
+
+    audio, _ = build_audio_backend(cfg)
+    errors.extend(audio.check())
 
     client = OllamaClient(endpoint=cfg.ollama_endpoint, model=cfg.ollama_model)
     if not client.healthcheck():
