@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import queue
 import re
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -35,6 +36,38 @@ def _check_audio_devices() -> list[str]:
     except Exception as exc:  # pylint: disable=broad-except
         errors.append(f"Could not query audio devices: {exc}")
     return errors
+
+
+def _detect_nvidia_gpu() -> bool:
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-L"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except OSError:
+        return False
+
+
+def _print_acceleration_info(config: AppConfig) -> None:
+    gpu_available = _detect_nvidia_gpu()
+    gpu_status = "detected" if gpu_available else "not detected"
+
+    stt_device = config.stt_device.lower()
+    if stt_device == "cuda":
+        stt_mode = "CUDA requested"
+    elif stt_device == "cpu":
+        stt_mode = "CPU forced"
+    else:
+        stt_mode = "auto (runtime decides)"
+
+    print("Acceleration:")
+    print(f"- NVIDIA GPU: {gpu_status}")
+    print(f"- STT (faster-whisper): {stt_mode}")
+    print("- LLM (Ollama): managed by Ollama runtime")
+    print("- TTS (Piper): CPU path in current implementation")
 
 
 def _extract_complete_sentences(text: str) -> tuple[list[str], str]:
@@ -182,6 +215,8 @@ def main() -> int:
     if errors:
         _print_config_errors(errors)
         return 2
+
+    _print_acceleration_info(cfg)
 
     if args.check:
         print("Configuration check passed.")
