@@ -67,7 +67,7 @@ def load_config() -> AppConfig:
         ),
         stt_model=os.getenv("ALWIN_STT_MODEL", "small"),
         stt_device=os.getenv("ALWIN_STT_DEVICE", "auto"),
-        stt_compute_type=os.getenv("ALWIN_STT_COMPUTE", "int8"),
+        stt_compute_type=os.getenv("ALWIN_STT_COMPUTE", "float16"),
         stt_language=os.getenv("ALWIN_STT_LANGUAGE", "sv"),
         piper_executable=os.getenv("ALWIN_PIPER_BIN", default_piper_bin),
         piper_model_path=model_path,

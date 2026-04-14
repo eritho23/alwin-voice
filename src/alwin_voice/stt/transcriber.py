@@ -21,7 +21,37 @@ class FasterWhisperTranscriber:
         language: str,
     ) -> None:
         self._language = language
-        self._model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        self._model_name = model_name
+        self._device = device
+        self._compute_type = compute_type
+        self._model = self._load_model_with_fallback()
+
+    def _load_model_with_fallback(self) -> WhisperModel:
+        try:
+            return WhisperModel(
+                self._model_name,
+                device=self._device,
+                compute_type=self._compute_type,
+            )
+        except RuntimeError as exc:
+            message = str(exc)
+            if (
+                "CUBLAS_STATUS_NOT_SUPPORTED" in message
+                and self._device in {"cuda", "auto"}
+                and self._compute_type != "float16"
+            ):
+                # RTX 50xx and some CUDA stacks fail on mixed/int8 modes.
+                self._compute_type = "float16"
+                print(
+                    "STT warning: cuBLAS compute mode unsupported; retrying with float16.",
+                    flush=True,
+                )
+                return WhisperModel(
+                    self._model_name,
+                    device=self._device,
+                    compute_type=self._compute_type,
+                )
+            raise
 
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> STTResult:
         if audio.size == 0:

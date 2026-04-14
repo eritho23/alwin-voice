@@ -57,7 +57,7 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_SYSTEM_PROMPT` default: Swedish assistant prompt
 - `ALWIN_STT_MODEL` default: `small`
 - `ALWIN_STT_DEVICE` default: `auto`
-- `ALWIN_STT_COMPUTE` default: `int8`
+- `ALWIN_STT_COMPUTE` default: `float16`
 - `ALWIN_STT_LANGUAGE` default: `sv`
 - `ALWIN_PIPER_BIN` default: `piper` on Linux/macOS, `piper.exe` on Windows
 - `ALWIN_PIPER_MODEL` default: `./models/piper/sv_SE-nst-medium.onnx`
@@ -154,6 +154,17 @@ pip install unitree-sdk2
 
 Depending on image/runtime, you may also need CycloneDDS and `CYCLONEDDS_HOME`
 as documented by Unitree SDK2 Python.
+
+### NVIDIA cuBLAS note
+
+If you see `CUBLAS_STATUS_NOT_SUPPORTED` during STT model initialization, use:
+
+```bash
+export ALWIN_STT_COMPUTE="float16"
+```
+
+The transcriber also retries with `float16` automatically when this specific
+cuBLAS error is detected.
 
 ## Tests
 
