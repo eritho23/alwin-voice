@@ -77,8 +77,8 @@ def load_config() -> AppConfig:
         audio_blocksize=_env_int("ALWIN_AUDIO_BLOCKSIZE", 1024),
         listen_max_seconds=_env_float("ALWIN_LISTEN_MAX_SECONDS", 12.0),
         vad_start_threshold=_env_float("ALWIN_VAD_START_THRESHOLD", 0.010),
-        vad_end_threshold=_env_float("ALWIN_VAD_END_THRESHOLD", 0.008),
-        vad_silence_seconds=_env_float("ALWIN_VAD_SILENCE_SECONDS", 0.8),
+        vad_end_threshold=_env_float("ALWIN_VAD_END_THRESHOLD", 0.012),
+        vad_silence_seconds=_env_float("ALWIN_VAD_SILENCE_SECONDS", 0.35),
         context_turns=_env_int("ALWIN_CONTEXT_TURNS", 12),
         tts_speaker=(
             int(os.getenv("ALWIN_TTS_SPEAKER"))

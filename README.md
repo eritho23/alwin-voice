@@ -68,8 +68,8 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_AUDIO_BLOCKSIZE` default: `1024`
 - `ALWIN_LISTEN_MAX_SECONDS` default: `12.0`
 - `ALWIN_VAD_START_THRESHOLD` default: `0.010`
-- `ALWIN_VAD_END_THRESHOLD` default: `0.008`
-- `ALWIN_VAD_SILENCE_SECONDS` default: `0.8`
+- `ALWIN_VAD_END_THRESHOLD` default: `0.012`
+- `ALWIN_VAD_SILENCE_SECONDS` default: `0.35`
 - `ALWIN_CONTEXT_TURNS` default: `12`
 - `ALWIN_AUDIO_BACKEND` default: `auto` (`auto`, `unitree`, `local`)
 
