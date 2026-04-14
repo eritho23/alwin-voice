@@ -54,7 +54,7 @@ All settings are environment-driven for minimal dependencies.
 
 - `ALWIN_OLLAMA_ENDPOINT` default: `http://127.0.0.1:11434`
 - `ALWIN_OLLAMA_MODEL` default: `llama3.1:8b`
-- `ALWIN_SYSTEM_PROMPT` default: Swedish assistant prompt
+- `ALWIN_SYSTEM_PROMPT` default: Swedish assistant prompt forcing 1-2 short conversational sentences and absolutely no Markdown formatting
 - `ALWIN_STT_MODEL` default: `small`
 - `ALWIN_STT_DEVICE` default: `auto`
 - `ALWIN_STT_COMPUTE` default: `float16`

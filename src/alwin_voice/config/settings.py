@@ -63,7 +63,7 @@ def load_config() -> AppConfig:
         ollama_model=os.getenv("ALWIN_OLLAMA_MODEL", "llama3.1:8b"),
         system_prompt=os.getenv(
             "ALWIN_SYSTEM_PROMPT",
-            "Du ar en hjalpsam svensk robotassistent. Svara kortfattat och tydligt.",
+            "Du ar en hjalpsam svensk robotassistent. Svara alltid i 1 till 2 korta meningar i samtalston. ANVAND ABSOLUT INGEN MARKDOWN-FORMATTERING. Ingen punktlista, ingen rubrik, inget kodblock, och anvand aldrig tecken som *, #, _, ` eller >.",
         ),
         stt_model=os.getenv("ALWIN_STT_MODEL", "small"),
         stt_device=os.getenv("ALWIN_STT_DEVICE", "auto"),
