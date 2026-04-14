@@ -67,9 +67,13 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_AUDIO_SAMPLE_RATE` default: `16000`
 - `ALWIN_AUDIO_BLOCKSIZE` default: `512`
 - `ALWIN_LISTEN_MAX_SECONDS` default: `12.0`
+- `ALWIN_VAD_ENGINE` default: `silero` (`rms`, `silero`)
 - `ALWIN_VAD_START_THRESHOLD` default: `0.010`
 - `ALWIN_VAD_END_THRESHOLD` default: `0.016`
 - `ALWIN_VAD_SILENCE_SECONDS` default: `0.20`
+- `ALWIN_SILERO_THRESHOLD` default: `0.50`
+- `ALWIN_SILERO_MIN_SILENCE_MS` default: `150`
+- `ALWIN_SILERO_SPEECH_PAD_MS` default: `20`
 - `ALWIN_CONTEXT_TURNS` default: `12`
 - `ALWIN_AUDIO_BACKEND` default: `auto` (`auto`, `unitree`, `local`)
 
@@ -79,6 +83,7 @@ Example:
 export ALWIN_OLLAMA_ENDPOINT="http://192.168.1.20:11434"
 export ALWIN_OLLAMA_MODEL="qwen2.5:7b"
 export ALWIN_PIPER_MODEL="$PWD/models/piper/sv_SE-nst-medium.onnx"
+export ALWIN_VAD_ENGINE="silero"
 ```
 
 Windows PowerShell example:

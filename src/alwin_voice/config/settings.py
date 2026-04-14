@@ -25,6 +25,10 @@ class AppConfig:
     vad_start_threshold: float
     vad_end_threshold: float
     vad_silence_seconds: float
+    vad_engine: str
+    silero_threshold: float
+    silero_min_silence_ms: int
+    silero_speech_pad_ms: int
     context_turns: int
     tts_speaker: int | None
     tts_length_scale: float
@@ -79,6 +83,10 @@ def load_config() -> AppConfig:
         vad_start_threshold=_env_float("ALWIN_VAD_START_THRESHOLD", 0.010),
         vad_end_threshold=_env_float("ALWIN_VAD_END_THRESHOLD", 0.016),
         vad_silence_seconds=_env_float("ALWIN_VAD_SILENCE_SECONDS", 0.20),
+        vad_engine=os.getenv("ALWIN_VAD_ENGINE", "silero").lower(),
+        silero_threshold=_env_float("ALWIN_SILERO_THRESHOLD", 0.50),
+        silero_min_silence_ms=_env_int("ALWIN_SILERO_MIN_SILENCE_MS", 150),
+        silero_speech_pad_ms=_env_int("ALWIN_SILERO_SPEECH_PAD_MS", 20),
         context_turns=_env_int("ALWIN_CONTEXT_TURNS", 12),
         tts_speaker=(
             int(os.getenv("ALWIN_TTS_SPEAKER"))
@@ -122,6 +130,21 @@ def validate_config(config: AppConfig) -> list[str]:
 
     if config.vad_silence_seconds <= 0:
         errors.append("ALWIN_VAD_SILENCE_SECONDS must be > 0")
+
+    if config.vad_engine not in {"rms", "silero"}:
+        errors.append("ALWIN_VAD_ENGINE must be one of: rms, silero")
+
+    if config.vad_engine == "silero" and config.audio_sample_rate not in {8000, 16000}:
+        errors.append("Silero VAD requires ALWIN_AUDIO_SAMPLE_RATE to be 8000 or 16000")
+
+    if not (0.0 < config.silero_threshold < 1.0):
+        errors.append("ALWIN_SILERO_THRESHOLD must be > 0 and < 1")
+
+    if config.silero_min_silence_ms < 0:
+        errors.append("ALWIN_SILERO_MIN_SILENCE_MS must be >= 0")
+
+    if config.silero_speech_pad_ms < 0:
+        errors.append("ALWIN_SILERO_SPEECH_PAD_MS must be >= 0")
 
     if config.audio_backend not in {"auto", "unitree", "local"}:
         errors.append("ALWIN_AUDIO_BACKEND must be one of: auto, unitree, local")

@@ -9,7 +9,7 @@ import numpy as np
 import sounddevice as sd
 
 from alwin_voice.audio.player import AudioPlayer
-from alwin_voice.audio.recorder import VADRecorder
+from alwin_voice.audio.recorder import SileroVADRecorder, VADRecorder
 from alwin_voice.config.settings import AppConfig
 
 
@@ -71,15 +71,27 @@ def probe_unitree_sdk() -> UnitreeProbe:
 class LocalAudioBackend:
     def __init__(self, config: AppConfig) -> None:
         self._player = AudioPlayer(sample_rate=config.audio_sample_rate)
-        self._recorder = VADRecorder(
-            sample_rate=config.audio_sample_rate,
-            channels=config.audio_channels,
-            blocksize=config.audio_blocksize,
-            start_threshold=config.vad_start_threshold,
-            end_threshold=config.vad_end_threshold,
-            silence_seconds=config.vad_silence_seconds,
-            max_seconds=config.listen_max_seconds,
-        )
+        self._vad_engine = config.vad_engine
+        if config.vad_engine == "silero":
+            self._recorder = SileroVADRecorder(
+                sample_rate=config.audio_sample_rate,
+                channels=config.audio_channels,
+                blocksize=config.audio_blocksize,
+                max_seconds=config.listen_max_seconds,
+                threshold=config.silero_threshold,
+                min_silence_ms=config.silero_min_silence_ms,
+                speech_pad_ms=config.silero_speech_pad_ms,
+            )
+        else:
+            self._recorder = VADRecorder(
+                sample_rate=config.audio_sample_rate,
+                channels=config.audio_channels,
+                blocksize=config.audio_blocksize,
+                start_threshold=config.vad_start_threshold,
+                end_threshold=config.vad_end_threshold,
+                silence_seconds=config.vad_silence_seconds,
+                max_seconds=config.listen_max_seconds,
+            )
 
     @property
     def name(self) -> str:
@@ -111,7 +123,10 @@ class LocalAudioBackend:
         self._player.play_wav_file(path)
 
     def diagnostics(self) -> list[str]:
-        return ["Audio backend local: using sounddevice for mic/speaker I/O"]
+        return [
+            "Audio backend local: using sounddevice for mic/speaker I/O",
+            f"Audio backend local: VAD engine={self._vad_engine}",
+        ]
 
 
 class UnitreeAudioBackend:
