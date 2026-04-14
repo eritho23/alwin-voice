@@ -1,0 +1,143 @@
+# alwin-voice
+
+Single-process speech chat pipeline in Python:
+
+1. Speech-to-text using `faster-whisper`
+2. Chat with an Ollama model (configurable endpoint + model)
+3. Text-to-speech using Piper (configurable voice model)
+4. Immediate playback, with listen start/end tones around recording
+
+Main target language is Swedish (`sv`), with configurable Piper voice model paths so you can swap voices without code changes.
+
+## Requirements
+
+- Python 3.10+
+- Local Ollama instance running
+- Piper runtime available as command in PATH (default: `piper` on Linux/macOS, `piper.exe` on Windows)
+- Piper Swedish voice model `.onnx` file
+- Working microphone and speaker
+
+Linux note for audio:
+
+```bash
+sudo apt-get install -y libportaudio2 portaudio19-dev
+```
+
+Windows note for audio:
+
+- `sounddevice` is supported with the prebuilt wheel on current CPython versions.
+- If your microphone is not detected, verify the Windows input device in Sound settings and disable exclusive mode for that device.
+
+## Install
+
+Linux/macOS:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+```
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pip install -e .
+```
+
+## Configuration
+
+All settings are environment-driven for minimal dependencies.
+
+- `ALWIN_OLLAMA_ENDPOINT` default: `http://127.0.0.1:11434`
+- `ALWIN_OLLAMA_MODEL` default: `llama3.1:8b`
+- `ALWIN_SYSTEM_PROMPT` default: Swedish assistant prompt
+- `ALWIN_STT_MODEL` default: `small`
+- `ALWIN_STT_DEVICE` default: `auto`
+- `ALWIN_STT_COMPUTE` default: `int8`
+- `ALWIN_STT_LANGUAGE` default: `sv`
+- `ALWIN_PIPER_BIN` default: `piper` on Linux/macOS, `piper.exe` on Windows
+- `ALWIN_PIPER_MODEL` default: `./models/piper/sv_SE-nst-medium.onnx`
+- `ALWIN_PIPER_CONFIG` optional path to Piper config JSON
+- `ALWIN_TTS_SPEAKER` optional speaker id
+- `ALWIN_TTS_LENGTH_SCALE` default: `1.0`
+- `ALWIN_AUDIO_SAMPLE_RATE` default: `16000`
+- `ALWIN_AUDIO_BLOCKSIZE` default: `1024`
+- `ALWIN_LISTEN_MAX_SECONDS` default: `12.0`
+- `ALWIN_VAD_START_THRESHOLD` default: `0.010`
+- `ALWIN_VAD_END_THRESHOLD` default: `0.008`
+- `ALWIN_VAD_SILENCE_SECONDS` default: `0.8`
+- `ALWIN_CONTEXT_TURNS` default: `12`
+
+Example:
+
+```bash
+export ALWIN_OLLAMA_ENDPOINT="http://192.168.1.20:11434"
+export ALWIN_OLLAMA_MODEL="qwen2.5:7b"
+export ALWIN_PIPER_MODEL="$PWD/models/piper/sv_SE-nst-medium.onnx"
+```
+
+Windows PowerShell example:
+
+```powershell
+$env:ALWIN_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
+$env:ALWIN_OLLAMA_MODEL = "qwen2.5:7b"
+$env:ALWIN_PIPER_MODEL = "$PWD\models\piper\sv_SE-nst-medium.onnx"
+```
+
+## Run
+
+Validation only:
+
+```bash
+alwin-voice --check
+```
+
+Start voice chat loop:
+
+```bash
+alwin-voice
+```
+
+If the console script is not available yet, run directly:
+
+Linux/macOS:
+
+```bash
+PYTHONPATH=src python -m alwin_voice.main --check
+PYTHONPATH=src python -m alwin_voice.main
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m alwin_voice.main --check
+python -m alwin_voice.main
+```
+
+Runtime flow per turn:
+
+1. Start tone plays
+2. Microphone recording starts
+3. Recording auto-stops on silence (VAD)
+4. End tone plays
+5. Speech is transcribed to text
+6. LLM response is generated with rolling chat context
+7. Piper synthesizes response audio
+8. Response audio plays immediately
+
+## Tests
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -v
+```
+
+## Notes
+
+- The implementation is intentionally single-process and synchronous for operational simplicity.
+- Context is a rolling window of the latest turns to support conversational follow-up.
+- You can switch Swedish voices by changing only `ALWIN_PIPER_MODEL` (and optional `ALWIN_PIPER_CONFIG`).
