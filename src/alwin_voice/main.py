@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import queue
+import re
 import sys
+import threading
 from pathlib import Path
 
 import sounddevice as sd
@@ -32,6 +35,36 @@ def _check_audio_devices() -> list[str]:
     except Exception as exc:  # pylint: disable=broad-except
         errors.append(f"Could not query audio devices: {exc}")
     return errors
+
+
+def _extract_complete_sentences(text: str) -> tuple[list[str], str]:
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    if len(parts) <= 1:
+        return [], text
+    completed = [p.strip() for p in parts[:-1] if p.strip()]
+    remainder = parts[-1]
+    return completed, remainder
+
+
+def _tts_worker(
+    tts: PiperEngine, player: AudioPlayer, tts_queue: queue.Queue[str | None]
+) -> None:
+    while True:
+        chunk = tts_queue.get()
+        if chunk is None:
+            break
+        if not chunk.strip():
+            continue
+
+        wav_path: Path | None = None
+        try:
+            wav_path = tts.synthesize_to_wav(chunk)
+            player.play_wav_file(wav_path)
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"TTS error: {exc}", file=sys.stderr)
+        finally:
+            if wav_path and wav_path.exists():
+                wav_path.unlink(missing_ok=True)
 
 
 def run_chat_loop(config: AppConfig) -> None:
@@ -81,24 +114,47 @@ def run_chat_loop(config: AppConfig) -> None:
         context.add_user(stt.text)
         messages = context.as_ollama_messages(system_prompt=config.system_prompt)
 
+        tts_queue: queue.Queue[str | None] = queue.Queue()
+        worker = threading.Thread(
+            target=_tts_worker,
+            args=(tts, player, tts_queue),
+            daemon=True,
+        )
+        worker.start()
+
+        reply_parts: list[str] = []
+        sentence_buffer = ""
+
+        print("Assistant: ", end="", flush=True)
         try:
-            reply = llm.chat(messages)
+            for token in llm.chat_stream(messages):
+                print(token, end="", flush=True)
+                reply_parts.append(token)
+                sentence_buffer += token
+
+                ready, sentence_buffer = _extract_complete_sentences(sentence_buffer)
+                for sentence in ready:
+                    tts_queue.put(sentence)
         except Exception as exc:  # pylint: disable=broad-except
-            print(f"LLM error: {exc}", file=sys.stderr)
+            print(f"\nLLM error: {exc}", file=sys.stderr)
+            tts_queue.put(None)
+            worker.join(timeout=2)
             continue
 
-        print(f"Assistant: {reply}")
-        context.add_assistant(reply)
+        print()
 
-        wav_path: Path | None = None
-        try:
-            wav_path = tts.synthesize_to_wav(reply)
-            player.play_wav_file(wav_path)
-        except Exception as exc:  # pylint: disable=broad-except
-            print(f"TTS error: {exc}", file=sys.stderr)
-        finally:
-            if wav_path and wav_path.exists():
-                wav_path.unlink(missing_ok=True)
+        if sentence_buffer.strip():
+            tts_queue.put(sentence_buffer.strip())
+
+        tts_queue.put(None)
+        worker.join()
+
+        reply = "".join(reply_parts).strip()
+        if not reply:
+            print("Assistant returned empty response.")
+            continue
+
+        context.add_assistant(reply)
 
 
 def parse_args() -> argparse.Namespace:
