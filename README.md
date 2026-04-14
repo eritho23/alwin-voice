@@ -124,11 +124,12 @@ Runtime flow per turn:
 1. Start tone plays
 2. Microphone recording starts
 3. Recording auto-stops on silence (VAD)
-4. End tone plays
-5. Speech is transcribed to text
-6. LLM response is generated with rolling chat context
-7. Piper synthesizes response audio
-8. Response audio plays immediately
+4. Console shows `Stopped listening. Processing...`
+5. End tone plays
+6. Speech is transcribed to text
+7. LLM response is generated with rolling chat context
+8. Piper synthesizes response audio
+9. Response audio plays immediately
 
 ## Tests
 

@@ -102,6 +102,7 @@ def run_chat_loop(config: AppConfig) -> None:
         print("Listening...")
 
         audio = recorder.record_utterance()
+        print("Stopped listening. Processing...")
 
         player.play_tone(frequency_hz=660.0, duration_ms=120)
 
