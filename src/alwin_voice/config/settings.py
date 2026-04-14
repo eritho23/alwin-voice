@@ -74,11 +74,11 @@ def load_config() -> AppConfig:
         piper_config_path=_env_optional_path("ALWIN_PIPER_CONFIG"),
         audio_sample_rate=_env_int("ALWIN_AUDIO_SAMPLE_RATE", 16000),
         audio_channels=_env_int("ALWIN_AUDIO_CHANNELS", 1),
-        audio_blocksize=_env_int("ALWIN_AUDIO_BLOCKSIZE", 1024),
+        audio_blocksize=_env_int("ALWIN_AUDIO_BLOCKSIZE", 512),
         listen_max_seconds=_env_float("ALWIN_LISTEN_MAX_SECONDS", 12.0),
         vad_start_threshold=_env_float("ALWIN_VAD_START_THRESHOLD", 0.010),
-        vad_end_threshold=_env_float("ALWIN_VAD_END_THRESHOLD", 0.012),
-        vad_silence_seconds=_env_float("ALWIN_VAD_SILENCE_SECONDS", 0.35),
+        vad_end_threshold=_env_float("ALWIN_VAD_END_THRESHOLD", 0.016),
+        vad_silence_seconds=_env_float("ALWIN_VAD_SILENCE_SECONDS", 0.20),
         context_turns=_env_int("ALWIN_CONTEXT_TURNS", 12),
         tts_speaker=(
             int(os.getenv("ALWIN_TTS_SPEAKER"))

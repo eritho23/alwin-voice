@@ -65,11 +65,11 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_TTS_SPEAKER` optional speaker id
 - `ALWIN_TTS_LENGTH_SCALE` default: `1.0`
 - `ALWIN_AUDIO_SAMPLE_RATE` default: `16000`
-- `ALWIN_AUDIO_BLOCKSIZE` default: `1024`
+- `ALWIN_AUDIO_BLOCKSIZE` default: `512`
 - `ALWIN_LISTEN_MAX_SECONDS` default: `12.0`
 - `ALWIN_VAD_START_THRESHOLD` default: `0.010`
-- `ALWIN_VAD_END_THRESHOLD` default: `0.012`
-- `ALWIN_VAD_SILENCE_SECONDS` default: `0.35`
+- `ALWIN_VAD_END_THRESHOLD` default: `0.016`
+- `ALWIN_VAD_SILENCE_SECONDS` default: `0.20`
 - `ALWIN_CONTEXT_TURNS` default: `12`
 - `ALWIN_AUDIO_BACKEND` default: `auto` (`auto`, `unitree`, `local`)
 
