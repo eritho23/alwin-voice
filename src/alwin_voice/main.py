@@ -64,10 +64,18 @@ def _extract_complete_sentences(text: str) -> tuple[list[str], str]:
 
 
 def _tts_worker(
-    tts: PiperEngine, audio: AudioBackend, tts_queue: queue.Queue[str | None]
+    tts: PiperEngine,
+    audio: AudioBackend,
+    tts_queue: queue.Queue[str | None],
+    stop_event: threading.Event,
 ) -> None:
     while True:
-        chunk = tts_queue.get()
+        if stop_event.is_set():
+            break
+        try:
+            chunk = tts_queue.get(timeout=0.1)
+        except queue.Empty:
+            continue
         if chunk is None:
             break
         if not chunk.strip():
@@ -76,6 +84,8 @@ def _tts_worker(
         wav_path: Path | None = None
         try:
             wav_path = tts.synthesize_to_wav(chunk)
+            if stop_event.is_set():
+                continue
             audio.play_wav_file(wav_path)
         except Exception as exc:  # pylint: disable=broad-except
             print(f"TTS error: {exc}", file=sys.stderr)
@@ -109,41 +119,49 @@ def run_chat_loop(config: AppConfig) -> None:
         )
     )
 
-    print("Voice chat started. Press Ctrl+C to stop.")
+    print(
+        "Voice chat started. Press Ctrl+C during assistant speech to interrupt and listen again; press Ctrl+C while listening/processing to stop."
+    )
     while True:
-        audio.play_listen_start()
-        print("Listening...")
-
-        captured_audio = audio.record_utterance()
-        print("Stopped listening. Processing...")
-
-        audio.play_listen_end()
-
-        stt = transcriber.transcribe(
-            audio=captured_audio,
-            sample_rate=config.audio_sample_rate,
-        )
-        if not stt.text:
-            print("No speech detected.")
-            continue
-
-        print(f"You: {stt.text}")
-        context.add_user(stt.text)
-        messages = context.as_ollama_messages(system_prompt=config.system_prompt)
-
-        tts_queue: queue.Queue[str | None] = queue.Queue()
-        worker = threading.Thread(
-            target=_tts_worker,
-            args=(tts, audio, tts_queue),
-            daemon=True,
-        )
-        worker.start()
-
-        reply_parts: list[str] = []
-        sentence_buffer = ""
-
-        print("Assistant: ", end="", flush=True)
+        tts_queue: queue.Queue[str | None] | None = None
+        stop_tts_event: threading.Event | None = None
+        worker: threading.Thread | None = None
+        assistant_phase = False
         try:
+            audio.play_listen_start()
+            print("Listening...")
+
+            captured_audio = audio.record_utterance()
+            print("Stopped listening. Processing...")
+
+            audio.play_listen_end()
+
+            stt = transcriber.transcribe(
+                audio=captured_audio,
+                sample_rate=config.audio_sample_rate,
+            )
+            if not stt.text:
+                print("No speech detected.")
+                continue
+
+            print(f"You: {stt.text}")
+            context.add_user(stt.text)
+            messages = context.as_ollama_messages(system_prompt=config.system_prompt)
+
+            tts_queue: queue.Queue[str | None] = queue.Queue()
+            stop_tts_event = threading.Event()
+            worker = threading.Thread(
+                target=_tts_worker,
+                args=(tts, audio, tts_queue, stop_tts_event),
+                daemon=True,
+            )
+            worker.start()
+
+            reply_parts: list[str] = []
+            sentence_buffer = ""
+
+            print("Assistant: ", end="", flush=True)
+            assistant_phase = True
             for token in llm.chat_stream(messages):
                 print(token, end="", flush=True)
                 reply_parts.append(token)
@@ -152,26 +170,43 @@ def run_chat_loop(config: AppConfig) -> None:
                 ready, sentence_buffer = _extract_complete_sentences(sentence_buffer)
                 for sentence in ready:
                     tts_queue.put(sentence)
+
+            print()
+
+            if sentence_buffer.strip():
+                tts_queue.put(sentence_buffer.strip())
+
+            tts_queue.put(None)
+            worker.join()
+
+            reply = "".join(reply_parts).strip()
+            if not reply:
+                print("Assistant returned empty response.")
+                continue
+
+            context.add_assistant(reply)
+        except KeyboardInterrupt:
+            if not assistant_phase:
+                raise
+
+            if stop_tts_event is not None:
+                stop_tts_event.set()
+            if tts_queue is not None:
+                tts_queue.put(None)
+            audio.stop_playback()
+            if worker is not None and worker.is_alive():
+                worker.join(timeout=1)
+            print("\nAssistant interrupted. Listening again...")
+            continue
         except Exception as exc:  # pylint: disable=broad-except
             print(f"\nLLM error: {exc}", file=sys.stderr)
-            tts_queue.put(None)
-            worker.join(timeout=2)
+            if stop_tts_event is not None:
+                stop_tts_event.set()
+            if tts_queue is not None:
+                tts_queue.put(None)
+            if worker is not None and worker.is_alive():
+                worker.join(timeout=2)
             continue
-
-        print()
-
-        if sentence_buffer.strip():
-            tts_queue.put(sentence_buffer.strip())
-
-        tts_queue.put(None)
-        worker.join()
-
-        reply = "".join(reply_parts).strip()
-        if not reply:
-            print("Assistant returned empty response.")
-            continue
-
-        context.add_assistant(reply)
 
 
 def parse_args() -> argparse.Namespace:

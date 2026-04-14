@@ -27,6 +27,8 @@ class AudioBackend(Protocol):
 
     def play_wav_file(self, path: Path) -> None: ...
 
+    def stop_playback(self) -> None: ...
+
     def diagnostics(self) -> list[str]: ...
 
 
@@ -122,6 +124,9 @@ class LocalAudioBackend:
     def play_wav_file(self, path: Path) -> None:
         self._player.play_wav_file(path)
 
+    def stop_playback(self) -> None:
+        self._player.stop()
+
     def diagnostics(self) -> list[str]:
         return [
             "Audio backend local: using sounddevice for mic/speaker I/O",
@@ -164,6 +169,9 @@ class UnitreeAudioBackend:
     def play_wav_file(self, path: Path) -> None:
         # Current implementation starts with local playback on robot compute.
         self._local.play_wav_file(path)
+
+    def stop_playback(self) -> None:
+        self._local.stop_playback()
 
     def diagnostics(self) -> list[str]:
         sdk_status = self._probe.sdk_module if self._probe.sdk_module else "not found"

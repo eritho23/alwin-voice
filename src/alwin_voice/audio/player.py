@@ -17,6 +17,9 @@ class AudioPlayer:
             audio = audio.astype(np.float32)
         sd.play(audio, samplerate=sr, blocking=True)
 
+    def stop(self) -> None:
+        sd.stop()
+
     def play_tone(
         self, frequency_hz: float, duration_ms: int, volume: float = 0.25
     ) -> None:
