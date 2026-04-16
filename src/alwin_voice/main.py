@@ -120,7 +120,7 @@ def run_chat_loop(config: AppConfig) -> None:
     )
 
     print(
-        "Voice chat started. Press Ctrl+C during assistant speech to interrupt and listen again; press Ctrl+C while listening/processing to stop."
+        "Voice chat started. Speak while assistant is talking to interrupt and listen again; press Ctrl+C while listening/processing to stop."
     )
     while True:
         tts_queue: queue.Queue[str | None] | None = None
@@ -162,22 +162,53 @@ def run_chat_loop(config: AppConfig) -> None:
 
             print("Assistant: ", end="", flush=True)
             assistant_phase = True
-            for token in llm.chat_stream(messages):
-                print(token, end="", flush=True)
-                reply_parts.append(token)
-                sentence_buffer += token
+            interrupted_by_voice = False
+            stream = llm.chat_stream(messages)
+            audio.start_barge_in_monitor()
+            try:
+                for token in stream:
+                    if audio.barge_in_detected():
+                        interrupted_by_voice = True
+                        break
 
-                ready, sentence_buffer = _extract_complete_sentences(sentence_buffer)
-                for sentence in ready:
-                    tts_queue.put(sentence)
+                    print(token, end="", flush=True)
+                    reply_parts.append(token)
+                    sentence_buffer += token
 
-            print()
+                    ready, sentence_buffer = _extract_complete_sentences(
+                        sentence_buffer
+                    )
+                    for sentence in ready:
+                        tts_queue.put(sentence)
 
-            if sentence_buffer.strip():
-                tts_queue.put(sentence_buffer.strip())
+                print()
 
-            tts_queue.put(None)
-            worker.join()
+                if interrupted_by_voice:
+                    if hasattr(stream, "close"):
+                        stream.close()
+                else:
+                    if sentence_buffer.strip():
+                        tts_queue.put(sentence_buffer.strip())
+
+                    tts_queue.put(None)
+                    while worker.is_alive():
+                        worker.join(timeout=0.1)
+                        if audio.barge_in_detected():
+                            interrupted_by_voice = True
+                            break
+
+                if interrupted_by_voice:
+                    if stop_tts_event is not None:
+                        stop_tts_event.set()
+                    if tts_queue is not None:
+                        tts_queue.put(None)
+                    audio.stop_playback()
+                    if worker.is_alive():
+                        worker.join(timeout=1)
+                    print("Assistant interrupted by speech. Listening again...")
+                    continue
+            finally:
+                audio.stop_barge_in_monitor()
 
             reply = "".join(reply_parts).strip()
             if not reply:

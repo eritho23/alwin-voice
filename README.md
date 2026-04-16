@@ -108,9 +108,10 @@ Start voice chat loop:
 alwin-voice
 ```
 
-Keyboard interrupt behavior:
+Interruption behavior:
 
-- Press `Ctrl+C` while assistant audio is playing to interrupt speech and immediately return to listening.
+- Start speaking while assistant audio is playing to interrupt speech and immediately return to listening.
+- Press `Ctrl+C` while assistant audio is playing as a fallback interruption method.
 - Press `Ctrl+C` while listening or processing to stop the program.
 
 If the console script is not available yet, run directly:

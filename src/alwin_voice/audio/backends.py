@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -9,7 +10,12 @@ import numpy as np
 import sounddevice as sd
 
 from alwin_voice.audio.player import AudioPlayer
-from alwin_voice.audio.recorder import SileroVADRecorder, VADRecorder
+from alwin_voice.audio.recorder import (
+    RMSInterruptionMonitor,
+    SileroInterruptionMonitor,
+    SileroVADRecorder,
+    VADRecorder,
+)
 from alwin_voice.config.settings import AppConfig
 
 
@@ -28,6 +34,12 @@ class AudioBackend(Protocol):
     def play_wav_file(self, path: Path) -> None: ...
 
     def stop_playback(self) -> None: ...
+
+    def start_barge_in_monitor(self) -> None: ...
+
+    def stop_barge_in_monitor(self) -> None: ...
+
+    def barge_in_detected(self) -> bool: ...
 
     def diagnostics(self) -> list[str]: ...
 
@@ -84,6 +96,14 @@ class LocalAudioBackend:
                 min_silence_ms=config.silero_min_silence_ms,
                 speech_pad_ms=config.silero_speech_pad_ms,
             )
+            self._barge_in_monitor = SileroInterruptionMonitor(
+                sample_rate=config.audio_sample_rate,
+                channels=config.audio_channels,
+                blocksize=config.audio_blocksize,
+                threshold=config.silero_threshold,
+                min_silence_ms=config.silero_min_silence_ms,
+                speech_pad_ms=config.silero_speech_pad_ms,
+            )
         else:
             self._recorder = VADRecorder(
                 sample_rate=config.audio_sample_rate,
@@ -94,6 +114,16 @@ class LocalAudioBackend:
                 silence_seconds=config.vad_silence_seconds,
                 max_seconds=config.listen_max_seconds,
             )
+            self._barge_in_monitor = RMSInterruptionMonitor(
+                sample_rate=config.audio_sample_rate,
+                channels=config.audio_channels,
+                blocksize=config.audio_blocksize,
+                start_threshold=config.vad_start_threshold,
+            )
+
+        self._barge_in_stop_event = threading.Event()
+        self._barge_in_detected_event = threading.Event()
+        self._barge_in_thread: threading.Thread | None = None
 
     @property
     def name(self) -> str:
@@ -126,6 +156,26 @@ class LocalAudioBackend:
 
     def stop_playback(self) -> None:
         self._player.stop()
+
+    def start_barge_in_monitor(self) -> None:
+        self.stop_barge_in_monitor()
+        self._barge_in_stop_event.clear()
+        self._barge_in_detected_event.clear()
+        self._barge_in_thread = threading.Thread(
+            target=self._barge_in_monitor.monitor,
+            args=(self._barge_in_stop_event, self._barge_in_detected_event),
+            daemon=True,
+        )
+        self._barge_in_thread.start()
+
+    def stop_barge_in_monitor(self) -> None:
+        self._barge_in_stop_event.set()
+        if self._barge_in_thread is not None and self._barge_in_thread.is_alive():
+            self._barge_in_thread.join(timeout=0.5)
+        self._barge_in_thread = None
+
+    def barge_in_detected(self) -> bool:
+        return self._barge_in_detected_event.is_set()
 
     def diagnostics(self) -> list[str]:
         return [
@@ -172,6 +222,15 @@ class UnitreeAudioBackend:
 
     def stop_playback(self) -> None:
         self._local.stop_playback()
+
+    def start_barge_in_monitor(self) -> None:
+        self._local.start_barge_in_monitor()
+
+    def stop_barge_in_monitor(self) -> None:
+        self._local.stop_barge_in_monitor()
+
+    def barge_in_detected(self) -> bool:
+        return self._local.barge_in_detected()
 
     def diagnostics(self) -> list[str]:
         sdk_status = self._probe.sdk_module if self._probe.sdk_module else "not found"
