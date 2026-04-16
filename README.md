@@ -72,6 +72,7 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_VAD_START_THRESHOLD` default: `0.010`
 - `ALWIN_VAD_END_THRESHOLD` default: `0.016`
 - `ALWIN_VAD_SILENCE_SECONDS` default: `0.20`
+- `ALWIN_VAD_PREROLL_SECONDS` default: `0.30` (keeps a short lead-in before speech start is detected)
 - `ALWIN_SILERO_THRESHOLD` default: `0.50`
 - `ALWIN_SILERO_MIN_SILENCE_MS` default: `150`
 - `ALWIN_SILERO_SPEECH_PAD_MS` default: `20`

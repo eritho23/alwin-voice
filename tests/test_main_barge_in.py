@@ -153,6 +153,7 @@ class TestMainBargeIn(unittest.TestCase):
             vad_start_threshold=0.01,
             vad_end_threshold=0.016,
             vad_silence_seconds=0.2,
+            vad_preroll_seconds=0.3,
             vad_engine="rms",
             silero_threshold=0.5,
             silero_min_silence_ms=150,

@@ -95,6 +95,7 @@ class LocalAudioBackend:
                 threshold=config.silero_threshold,
                 min_silence_ms=config.silero_min_silence_ms,
                 speech_pad_ms=config.silero_speech_pad_ms,
+                preroll_seconds=config.vad_preroll_seconds,
             )
             self._barge_in_monitor = SileroInterruptionMonitor(
                 sample_rate=config.audio_sample_rate,
@@ -113,6 +114,7 @@ class LocalAudioBackend:
                 end_threshold=config.vad_end_threshold,
                 silence_seconds=config.vad_silence_seconds,
                 max_seconds=config.listen_max_seconds,
+                preroll_seconds=config.vad_preroll_seconds,
             )
             self._barge_in_monitor = RMSInterruptionMonitor(
                 sample_rate=config.audio_sample_rate,

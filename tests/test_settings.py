@@ -51,6 +51,21 @@ class TestSettings(unittest.TestCase):
             else:
                 os.environ.pop("ALWIN_CPU_MODE", None)
 
+    def test_load_config_vad_preroll_default_and_env(self) -> None:
+        original = os.environ.pop("ALWIN_VAD_PREROLL_SECONDS", None)
+        try:
+            cfg = load_config()
+            self.assertEqual(cfg.vad_preroll_seconds, 0.30)
+
+            os.environ["ALWIN_VAD_PREROLL_SECONDS"] = "0.5"
+            cfg = load_config()
+            self.assertEqual(cfg.vad_preroll_seconds, 0.5)
+        finally:
+            if original is not None:
+                os.environ["ALWIN_VAD_PREROLL_SECONDS"] = original
+            else:
+                os.environ.pop("ALWIN_VAD_PREROLL_SECONDS", None)
+
 
 if __name__ == "__main__":
     unittest.main()

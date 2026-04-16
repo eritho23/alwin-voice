@@ -26,6 +26,7 @@ class AppConfig:
     vad_start_threshold: float
     vad_end_threshold: float
     vad_silence_seconds: float
+    vad_preroll_seconds: float
     vad_engine: str
     silero_threshold: float
     silero_min_silence_ms: int
@@ -95,6 +96,7 @@ def load_config() -> AppConfig:
         vad_start_threshold=_env_float("ALWIN_VAD_START_THRESHOLD", 0.010),
         vad_end_threshold=_env_float("ALWIN_VAD_END_THRESHOLD", 0.016),
         vad_silence_seconds=_env_float("ALWIN_VAD_SILENCE_SECONDS", 0.20),
+        vad_preroll_seconds=_env_float("ALWIN_VAD_PREROLL_SECONDS", 0.30),
         vad_engine=os.getenv("ALWIN_VAD_ENGINE", "silero").lower(),
         silero_threshold=_env_float("ALWIN_SILERO_THRESHOLD", 0.50),
         silero_min_silence_ms=_env_int("ALWIN_SILERO_MIN_SILENCE_MS", 150),
@@ -142,6 +144,9 @@ def validate_config(config: AppConfig) -> list[str]:
 
     if config.vad_silence_seconds <= 0:
         errors.append("ALWIN_VAD_SILENCE_SECONDS must be > 0")
+
+    if config.vad_preroll_seconds < 0:
+        errors.append("ALWIN_VAD_PREROLL_SECONDS must be >= 0")
 
     if config.vad_engine not in {"rms", "silero"}:
         errors.append("ALWIN_VAD_ENGINE must be one of: rms, silero")

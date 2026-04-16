@@ -3,6 +3,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from collections import deque
 from typing import Any
 
 import numpy as np
@@ -19,6 +20,7 @@ class VADRecorder:
         end_threshold: float,
         silence_seconds: float,
         max_seconds: float,
+        preroll_seconds: float,
     ) -> None:
         self.sample_rate = sample_rate
         self.channels = channels
@@ -27,6 +29,7 @@ class VADRecorder:
         self.end_threshold = end_threshold
         self.silence_seconds = silence_seconds
         self.max_seconds = max_seconds
+        self.preroll_seconds = preroll_seconds
 
     def _rms(self, block: np.ndarray) -> float:
         return float(np.sqrt(np.mean(np.square(block), dtype=np.float64)))
@@ -41,10 +44,12 @@ class VADRecorder:
                 pass
             q.put(indata.copy())
 
+        frame_duration = self.blocksize / self.sample_rate
+        preroll_blocks = max(0, int(self.preroll_seconds / frame_duration))
+        preroll_buffer: deque[np.ndarray] = deque(maxlen=preroll_blocks)
         captured: list[np.ndarray] = []
         started = False
         silence_accum = 0.0
-        frame_duration = self.blocksize / self.sample_rate
         max_blocks = int(self.max_seconds / frame_duration)
         blocks_seen = 0
 
@@ -72,9 +77,13 @@ class VADRecorder:
                 energy = self._rms(mono)
                 blocks_seen += 1
 
+                if not started and preroll_blocks > 0:
+                    preroll_buffer.append(mono)
+
                 if not started:
                     if energy >= self.start_threshold:
                         started = True
+                        captured.extend(preroll_buffer)
                         captured.append(mono)
                 else:
                     captured.append(mono)
@@ -158,6 +167,7 @@ class SileroVADRecorder:
         threshold: float,
         min_silence_ms: int,
         speech_pad_ms: int,
+        preroll_seconds: float,
     ) -> None:
         self.sample_rate = sample_rate
         self.channels = channels
@@ -166,6 +176,7 @@ class SileroVADRecorder:
         self.threshold = threshold
         self.min_silence_ms = min_silence_ms
         self.speech_pad_ms = speech_pad_ms
+        self.preroll_seconds = preroll_seconds
 
         self._torch: Any | None = None
         self._vad_iterator: Any | None = None
@@ -206,9 +217,11 @@ class SileroVADRecorder:
                 pass
             q.put(indata.copy())
 
+        frame_duration = self.blocksize / self.sample_rate
+        preroll_blocks = max(0, int(self.preroll_seconds / frame_duration))
+        preroll_buffer: deque[np.ndarray] = deque(maxlen=preroll_blocks)
         captured: list[np.ndarray] = []
         started = False
-        frame_duration = self.blocksize / self.sample_rate
         max_blocks = int(self.max_seconds / frame_duration)
         blocks_seen = 0
 
@@ -240,8 +253,12 @@ class SileroVADRecorder:
                 )
                 blocks_seen += 1
 
+                if not started and preroll_blocks > 0:
+                    preroll_buffer.append(mono)
+
                 if event and "start" in event:
                     started = True
+                    captured.extend(preroll_buffer)
 
                 if started:
                     captured.append(mono)
