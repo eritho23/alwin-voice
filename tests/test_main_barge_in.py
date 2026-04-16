@@ -138,6 +138,7 @@ class TestMainBargeIn(unittest.TestCase):
             ollama_endpoint="http://127.0.0.1:11434",
             ollama_model="llama3.1:8b",
             system_prompt="sys",
+            cpu_mode=False,
             stt_model="small",
             stt_device="cpu",
             stt_compute_type="float16",

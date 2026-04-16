@@ -11,6 +11,7 @@ class AppConfig:
     ollama_endpoint: str
     ollama_model: str
     system_prompt: str
+    cpu_mode: bool
     stt_model: str
     stt_device: str
     stt_compute_type: str
@@ -49,6 +50,13 @@ def _env_float(name: str, default: float) -> float:
     return float(value)
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _env_optional_path(name: str) -> Path | None:
     value = os.getenv(name)
     if not value:
@@ -61,6 +69,7 @@ def load_config() -> AppConfig:
     model_path = Path(
         os.getenv("ALWIN_PIPER_MODEL", "./models/piper/sv_SE-nst-medium.onnx")
     ).expanduser()
+    cpu_mode = _env_bool("ALWIN_CPU_MODE", False)
 
     return AppConfig(
         ollama_endpoint=os.getenv("ALWIN_OLLAMA_ENDPOINT", "http://127.0.0.1:11434"),
@@ -69,9 +78,12 @@ def load_config() -> AppConfig:
             "ALWIN_SYSTEM_PROMPT",
             "Du ar en hjalpsam svensk robotassistent. Svara alltid i 1 till 2 korta meningar i samtalston. ANVAND ABSOLUT INGEN MARKDOWN-FORMATTERING. Ingen punktlista, ingen rubrik, inget kodblock, och anvand aldrig tecken som *, #, _, ` eller >.",
         ),
+        cpu_mode=cpu_mode,
         stt_model=os.getenv("ALWIN_STT_MODEL", "small"),
-        stt_device=os.getenv("ALWIN_STT_DEVICE", "auto"),
-        stt_compute_type=os.getenv("ALWIN_STT_COMPUTE", "float16"),
+        stt_device="cpu" if cpu_mode else os.getenv("ALWIN_STT_DEVICE", "auto"),
+        stt_compute_type=(
+            "int8" if cpu_mode else os.getenv("ALWIN_STT_COMPUTE", "float16")
+        ),
         stt_language=os.getenv("ALWIN_STT_LANGUAGE", "sv"),
         piper_executable=os.getenv("ALWIN_PIPER_BIN", default_piper_bin),
         piper_model_path=model_path,

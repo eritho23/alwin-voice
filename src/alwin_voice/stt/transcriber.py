@@ -33,7 +33,7 @@ class FasterWhisperTranscriber:
                 device=self._device,
                 compute_type=self._compute_type,
             )
-        except RuntimeError as exc:
+        except (RuntimeError, ValueError) as exc:
             message = str(exc)
             if (
                 "CUBLAS_STATUS_NOT_SUPPORTED" in message
@@ -44,6 +44,23 @@ class FasterWhisperTranscriber:
                 self._compute_type = "float16"
                 print(
                     "STT warning: cuBLAS compute mode unsupported; retrying with float16.",
+                    flush=True,
+                )
+                return WhisperModel(
+                    self._model_name,
+                    device=self._device,
+                    compute_type=self._compute_type,
+                )
+            if (
+                "float16" in message.lower()
+                and "do not support efficient" in message.lower()
+                and self._device in {"cpu", "auto"}
+            ):
+                # CPU backends often require int8/int8_float32 instead of float16.
+                self._compute_type = "int8"
+                print(
+                    "STT warning: float16 is not supported efficiently on CPU; "
+                    f"retrying with {self._compute_type}.",
                     flush=True,
                 )
                 return WhisperModel(

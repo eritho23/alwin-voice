@@ -39,13 +39,16 @@ def _print_acceleration_info(config: AppConfig) -> None:
     gpu_available = _detect_nvidia_gpu()
     gpu_status = "detected" if gpu_available else "not detected"
 
-    stt_device = config.stt_device.lower()
-    if stt_device == "cuda":
-        stt_mode = "CUDA requested"
-    elif stt_device == "cpu":
-        stt_mode = "CPU forced"
+    if config.cpu_mode:
+        stt_mode = "CPU mode enabled"
     else:
-        stt_mode = "auto (runtime decides)"
+        stt_device = config.stt_device.lower()
+        if stt_device == "cuda":
+            stt_mode = "CUDA requested"
+        elif stt_device == "cpu":
+            stt_mode = "CPU forced"
+        else:
+            stt_mode = "auto (runtime decides)"
 
     print("Acceleration:")
     print(f"- NVIDIA GPU: {gpu_status}")

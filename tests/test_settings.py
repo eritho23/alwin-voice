@@ -32,6 +32,25 @@ class TestSettings(unittest.TestCase):
                 else:
                     os.environ["ALWIN_PIPER_MODEL"] = original
 
+    def test_load_config_cpu_mode_default_and_env(self) -> None:
+        original = os.environ.pop("ALWIN_CPU_MODE", None)
+        try:
+            cfg = load_config()
+            self.assertFalse(cfg.cpu_mode)
+            self.assertEqual(cfg.stt_device, "auto")
+            self.assertEqual(cfg.stt_compute_type, "float16")
+
+            os.environ["ALWIN_CPU_MODE"] = "true"
+            cfg = load_config()
+            self.assertTrue(cfg.cpu_mode)
+            self.assertEqual(cfg.stt_device, "cpu")
+            self.assertEqual(cfg.stt_compute_type, "int8")
+        finally:
+            if original is not None:
+                os.environ["ALWIN_CPU_MODE"] = original
+            else:
+                os.environ.pop("ALWIN_CPU_MODE", None)
+
 
 if __name__ == "__main__":
     unittest.main()

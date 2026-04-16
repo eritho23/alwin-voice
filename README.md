@@ -58,6 +58,7 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_STT_MODEL` default: `small`
 - `ALWIN_STT_DEVICE` default: `auto`
 - `ALWIN_STT_COMPUTE` default: `float16`
+- `ALWIN_CPU_MODE` default: `false` (`true` uses CPU-suitable STT settings for dev/testing)
 - `ALWIN_STT_LANGUAGE` default: `sv`
 - `ALWIN_PIPER_BIN` default: `piper` on Linux/macOS, `piper.exe` on Windows
 - `ALWIN_PIPER_MODEL` default: `./models/piper/sv_SE-nst-medium.onnx`
@@ -92,6 +93,7 @@ Windows PowerShell example:
 $env:ALWIN_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
 $env:ALWIN_OLLAMA_MODEL = "qwen2.5:7b"
 $env:ALWIN_PIPER_MODEL = "$PWD\models\piper\sv_SE-nst-medium.onnx"
+$env:ALWIN_CPU_MODE = "true"
 ```
 
 ## Run
