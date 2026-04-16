@@ -101,7 +101,7 @@ class LocalAudioBackend:
                 sample_rate=config.audio_sample_rate,
                 channels=config.audio_channels,
                 blocksize=config.audio_blocksize,
-                threshold=config.silero_threshold,
+                threshold=config.barge_in_silero_threshold,
                 min_silence_ms=config.silero_min_silence_ms,
                 speech_pad_ms=config.silero_speech_pad_ms,
             )
@@ -120,7 +120,7 @@ class LocalAudioBackend:
                 sample_rate=config.audio_sample_rate,
                 channels=config.audio_channels,
                 blocksize=config.audio_blocksize,
-                start_threshold=config.vad_start_threshold,
+                start_threshold=config.barge_in_rms_threshold,
             )
 
         self._barge_in_stop_event = threading.Event()

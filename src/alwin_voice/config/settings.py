@@ -27,8 +27,10 @@ class AppConfig:
     vad_end_threshold: float
     vad_silence_seconds: float
     vad_preroll_seconds: float
+    barge_in_rms_threshold: float
     vad_engine: str
     silero_threshold: float
+    barge_in_silero_threshold: float
     silero_min_silence_ms: int
     silero_speech_pad_ms: int
     context_turns: int
@@ -97,8 +99,10 @@ def load_config() -> AppConfig:
         vad_end_threshold=_env_float("ALWIN_VAD_END_THRESHOLD", 0.016),
         vad_silence_seconds=_env_float("ALWIN_VAD_SILENCE_SECONDS", 0.20),
         vad_preroll_seconds=_env_float("ALWIN_VAD_PREROLL_SECONDS", 0.30),
+        barge_in_rms_threshold=_env_float("ALWIN_BARGE_IN_RMS_THRESHOLD", 0.03),
         vad_engine=os.getenv("ALWIN_VAD_ENGINE", "silero").lower(),
         silero_threshold=_env_float("ALWIN_SILERO_THRESHOLD", 0.50),
+        barge_in_silero_threshold=_env_float("ALWIN_BARGE_IN_SILERO_THRESHOLD", 0.75),
         silero_min_silence_ms=_env_int("ALWIN_SILERO_MIN_SILENCE_MS", 150),
         silero_speech_pad_ms=_env_int("ALWIN_SILERO_SPEECH_PAD_MS", 20),
         context_turns=_env_int("ALWIN_CONTEXT_TURNS", 12),
@@ -148,6 +152,9 @@ def validate_config(config: AppConfig) -> list[str]:
     if config.vad_preroll_seconds < 0:
         errors.append("ALWIN_VAD_PREROLL_SECONDS must be >= 0")
 
+    if config.barge_in_rms_threshold <= 0:
+        errors.append("ALWIN_BARGE_IN_RMS_THRESHOLD must be > 0")
+
     if config.vad_engine not in {"rms", "silero"}:
         errors.append("ALWIN_VAD_ENGINE must be one of: rms, silero")
 
@@ -156,6 +163,9 @@ def validate_config(config: AppConfig) -> list[str]:
 
     if not (0.0 < config.silero_threshold < 1.0):
         errors.append("ALWIN_SILERO_THRESHOLD must be > 0 and < 1")
+
+    if not (0.0 < config.barge_in_silero_threshold < 1.0):
+        errors.append("ALWIN_BARGE_IN_SILERO_THRESHOLD must be > 0 and < 1")
 
     if config.silero_min_silence_ms < 0:
         errors.append("ALWIN_SILERO_MIN_SILENCE_MS must be >= 0")

@@ -66,6 +66,30 @@ class TestSettings(unittest.TestCase):
             else:
                 os.environ.pop("ALWIN_VAD_PREROLL_SECONDS", None)
 
+    def test_load_config_barge_in_thresholds_default_and_env(self) -> None:
+        original_rms = os.environ.pop("ALWIN_BARGE_IN_RMS_THRESHOLD", None)
+        original_silero = os.environ.pop("ALWIN_BARGE_IN_SILERO_THRESHOLD", None)
+        try:
+            cfg = load_config()
+            self.assertEqual(cfg.barge_in_rms_threshold, 0.03)
+            self.assertEqual(cfg.barge_in_silero_threshold, 0.75)
+
+            os.environ["ALWIN_BARGE_IN_RMS_THRESHOLD"] = "0.05"
+            os.environ["ALWIN_BARGE_IN_SILERO_THRESHOLD"] = "0.85"
+            cfg = load_config()
+            self.assertEqual(cfg.barge_in_rms_threshold, 0.05)
+            self.assertEqual(cfg.barge_in_silero_threshold, 0.85)
+        finally:
+            if original_rms is not None:
+                os.environ["ALWIN_BARGE_IN_RMS_THRESHOLD"] = original_rms
+            else:
+                os.environ.pop("ALWIN_BARGE_IN_RMS_THRESHOLD", None)
+
+            if original_silero is not None:
+                os.environ["ALWIN_BARGE_IN_SILERO_THRESHOLD"] = original_silero
+            else:
+                os.environ.pop("ALWIN_BARGE_IN_SILERO_THRESHOLD", None)
+
 
 if __name__ == "__main__":
     unittest.main()
