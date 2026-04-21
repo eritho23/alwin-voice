@@ -44,10 +44,11 @@ class PiperEngine:
         if self.cfg.speaker is not None:
             cmd.extend(["--speaker", str(self.cfg.speaker)])
 
+        # Send UTF-8 bytes explicitly so subprocess input encoding does not depend
+        # on the host locale (which can trigger charmap errors).
         subprocess.run(
             cmd,
-            input=text,
-            text=True,
+            input=text.encode("utf-8"),
             check=True,
             capture_output=True,
         )

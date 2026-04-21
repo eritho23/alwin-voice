@@ -90,6 +90,30 @@ class TestSettings(unittest.TestCase):
             else:
                 os.environ.pop("ALWIN_BARGE_IN_SILERO_THRESHOLD", None)
 
+    def test_load_config_silero_vad_defaults_and_env(self) -> None:
+        original_threshold = os.environ.pop("ALWIN_SILERO_THRESHOLD", None)
+        original_min_silence = os.environ.pop("ALWIN_SILERO_MIN_SILENCE_MS", None)
+        try:
+            cfg = load_config()
+            self.assertEqual(cfg.silero_threshold, 0.45)
+            self.assertEqual(cfg.silero_min_silence_ms, 350)
+
+            os.environ["ALWIN_SILERO_THRESHOLD"] = "0.55"
+            os.environ["ALWIN_SILERO_MIN_SILENCE_MS"] = "500"
+            cfg = load_config()
+            self.assertEqual(cfg.silero_threshold, 0.55)
+            self.assertEqual(cfg.silero_min_silence_ms, 500)
+        finally:
+            if original_threshold is not None:
+                os.environ["ALWIN_SILERO_THRESHOLD"] = original_threshold
+            else:
+                os.environ.pop("ALWIN_SILERO_THRESHOLD", None)
+
+            if original_min_silence is not None:
+                os.environ["ALWIN_SILERO_MIN_SILENCE_MS"] = original_min_silence
+            else:
+                os.environ.pop("ALWIN_SILERO_MIN_SILENCE_MS", None)
+
 
 if __name__ == "__main__":
     unittest.main()
