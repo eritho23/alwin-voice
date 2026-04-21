@@ -10,6 +10,7 @@ from pathlib import Path
 
 from alwin_voice.audio.backends import AudioBackend, build_audio_backend
 from alwin_voice.config.settings import AppConfig, load_config, validate_config
+from alwin_voice.interrupts import is_clear_question_or_clarification
 from alwin_voice.llm.client import OllamaClient
 from alwin_voice.llm.context import ConversationContext
 from alwin_voice.stt.transcriber import FasterWhisperTranscriber
@@ -145,6 +146,10 @@ def run_chat_loop(config: AppConfig) -> None:
             )
             if not stt.text:
                 print("No speech detected.")
+                continue
+
+            if not is_clear_question_or_clarification(stt.text):
+                print(f"Ignoring non-question speech: {stt.text}")
                 continue
 
             print(f"You: {stt.text}")

@@ -37,8 +37,12 @@ class _FakeTranscription:
 
 
 class _FakeTranscriber:
+    def __init__(self, text: str = "hej") -> None:
+        self.text = text
+
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> _FakeTranscription:
-        return _FakeTranscription("hej")
+        del audio, sample_rate
+        return _FakeTranscription(self.text)
 
 
 class _FakeContext:
@@ -171,7 +175,7 @@ class TestMainBargeIn(unittest.TestCase):
         ):
             with patch(
                 "alwin_voice.main.FasterWhisperTranscriber",
-                return_value=_FakeTranscriber(),
+                return_value=_FakeTranscriber("Kan du upprepa?"),
             ):
                 with patch(
                     "alwin_voice.main.ConversationContext", return_value=fake_context
@@ -189,7 +193,67 @@ class TestMainBargeIn(unittest.TestCase):
         self.assertEqual(fake_audio.record_calls, 2)
         self.assertEqual(fake_audio.monitor_starts, 1)
         self.assertEqual(fake_audio.monitor_stops, 1)
-        self.assertEqual(fake_context.users, ["hej"])
+        self.assertEqual(fake_context.users, ["Kan du upprepa?"])
+        self.assertEqual(fake_context.assistants, [])
+
+    def test_non_question_speech_is_ignored_before_assistant_turn(self) -> None:
+        fake_audio = _FakeAudio()
+        fake_context = _FakeContext(max_turns=12)
+
+        cfg = AppConfig(
+            ollama_endpoint="http://127.0.0.1:11434",
+            ollama_model="llama3.1:8b",
+            system_prompt="sys",
+            cpu_mode=False,
+            stt_model="small",
+            stt_device="cpu",
+            stt_compute_type="float16",
+            stt_language="sv",
+            piper_executable="piper",
+            piper_model_path=Path("/tmp/model.onnx"),
+            piper_config_path=None,
+            audio_sample_rate=16000,
+            audio_channels=1,
+            audio_blocksize=512,
+            listen_max_seconds=12.0,
+            vad_start_threshold=0.01,
+            vad_end_threshold=0.016,
+            vad_silence_seconds=0.2,
+            vad_preroll_seconds=0.3,
+            barge_in_rms_threshold=0.03,
+            vad_engine="rms",
+            silero_threshold=0.5,
+            barge_in_silero_threshold=0.75,
+            silero_min_silence_ms=150,
+            silero_speech_pad_ms=20,
+            context_turns=12,
+            tts_speaker=None,
+            tts_length_scale=1.0,
+            audio_backend="local",
+        )
+
+        with patch(
+            "alwin_voice.main.build_audio_backend", return_value=(fake_audio, [])
+        ):
+            with patch(
+                "alwin_voice.main.FasterWhisperTranscriber",
+                return_value=_FakeTranscriber("hmm"),
+            ):
+                with patch(
+                    "alwin_voice.main.ConversationContext", return_value=fake_context
+                ):
+                    with patch(
+                        "alwin_voice.main.OllamaClient", return_value=_FakeLLM()
+                    ):
+                        with patch(
+                            "alwin_voice.main.PiperEngine", side_effect=_FakePiperEngine
+                        ):
+                            with self.assertRaises(KeyboardInterrupt):
+                                run_chat_loop(cfg)
+
+        self.assertEqual(fake_audio.monitor_starts, 0)
+        self.assertEqual(fake_audio.playback_stops, 0)
+        self.assertEqual(fake_context.users, [])
         self.assertEqual(fake_context.assistants, [])
 
 

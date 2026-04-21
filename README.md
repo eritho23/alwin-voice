@@ -116,6 +116,7 @@ alwin-voice
 Interruption behavior:
 
 - Start speaking while assistant audio is playing to interrupt speech and immediately return to listening.
+- Clear questions and clarification prompts are treated as interrupt-worthy; filler speech and background noise are ignored.
 - Press `Ctrl+C` while assistant audio is playing as a fallback interruption method.
 - Press `Ctrl+C` while listening or processing to stop the program.
 
