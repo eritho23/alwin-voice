@@ -98,6 +98,22 @@ def _tts_worker(
                 wav_path.unlink(missing_ok=True)
 
 
+def _confirm_interrupt_text(
+    audio: AudioBackend,
+    transcriber: FasterWhisperTranscriber,
+    config: AppConfig,
+) -> str:
+    audio.stop_barge_in_monitor()
+    audio.stop_playback()
+
+    captured_audio = audio.record_utterance()
+    stt = transcriber.transcribe(
+        audio=captured_audio,
+        sample_rate=config.audio_sample_rate,
+    )
+    return stt.text.strip()
+
+
 def run_chat_loop(config: AppConfig) -> None:
     audio, notes = build_audio_backend(config)
     for note in notes:
@@ -148,10 +164,6 @@ def run_chat_loop(config: AppConfig) -> None:
                 print("No speech detected.")
                 continue
 
-            if not is_clear_question_or_clarification(stt.text):
-                print(f"Ignoring non-question speech: {stt.text}")
-                continue
-
             print(f"You: {stt.text}")
             context.add_user(stt.text)
             messages = context.as_ollama_messages(system_prompt=config.system_prompt)
@@ -176,8 +188,15 @@ def run_chat_loop(config: AppConfig) -> None:
             try:
                 for token in stream:
                     if audio.barge_in_detected():
-                        interrupted_by_voice = True
-                        break
+                        candidate = _confirm_interrupt_text(audio, transcriber, config)
+                        if is_clear_question_or_clarification(candidate):
+                            interrupted_by_voice = True
+                            break
+                        if candidate:
+                            print(
+                                f"Ignoring non-question interruption candidate: {candidate}"
+                            )
+                        audio.start_barge_in_monitor()
 
                     print(token, end="", flush=True)
                     reply_parts.append(token)
@@ -202,8 +221,18 @@ def run_chat_loop(config: AppConfig) -> None:
                     while worker.is_alive():
                         worker.join(timeout=0.1)
                         if audio.barge_in_detected():
-                            interrupted_by_voice = True
-                            break
+                            candidate = _confirm_interrupt_text(
+                                audio, transcriber, config
+                            )
+                            if is_clear_question_or_clarification(candidate):
+                                interrupted_by_voice = True
+                                break
+                            if candidate:
+                                print(
+                                    "Ignoring non-question interruption candidate: "
+                                    f"{candidate}"
+                                )
+                            audio.start_barge_in_monitor()
 
                 if interrupted_by_voice:
                     if stop_tts_event is not None:

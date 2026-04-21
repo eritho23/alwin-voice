@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 import sys
+import tempfile
 import types
 from unittest.mock import patch
 
@@ -37,12 +38,15 @@ class _FakeTranscription:
 
 
 class _FakeTranscriber:
-    def __init__(self, text: str = "hej") -> None:
-        self.text = text
+    def __init__(self, text: str = "hej", texts: list[str] | None = None) -> None:
+        self._fallback = text
+        self._texts = list(texts) if texts is not None else []
 
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> _FakeTranscription:
         del audio, sample_rate
-        return _FakeTranscription(self.text)
+        if self._texts:
+            return _FakeTranscription(self._texts.pop(0))
+        return _FakeTranscription(self._fallback)
 
 
 class _FakeContext:
@@ -77,17 +81,20 @@ class _FakePiperEngine:
 
     def synthesize_to_wav(self, chunk: str) -> Path:
         del chunk
-        raise AssertionError("No TTS synthesis expected in interruption test")
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+            return Path(handle.name)
 
 
 class _FakeAudio:
-    def __init__(self) -> None:
+    def __init__(self, *, barge_checks_before_detect: int = 0) -> None:
         self.record_calls = 0
         self.playback_stops = 0
         self.monitor_starts = 0
         self.monitor_stops = 0
         self._monitor_active = False
         self._barge_in_checks = 0
+        self._barge_checks_before_detect = barge_checks_before_detect
+        self._detected_once = False
 
     @property
     def name(self) -> str:
@@ -101,7 +108,7 @@ class _FakeAudio:
 
     def record_utterance(self) -> np.ndarray:
         self.record_calls += 1
-        if self.record_calls == 1:
+        if self.record_calls <= 2:
             return np.ones(160, dtype=np.float32)
         raise KeyboardInterrupt()
 
@@ -130,7 +137,23 @@ class _FakeAudio:
         if not self._monitor_active:
             return False
         self._barge_in_checks += 1
-        return self._barge_in_checks >= 1
+        if self._detected_once:
+            return False
+        if self._barge_in_checks > self._barge_checks_before_detect:
+            self._detected_once = True
+            return True
+        return False
+
+
+class _NoBargeAudio(_FakeAudio):
+    def __init__(self) -> None:
+        super().__init__(barge_checks_before_detect=10**9)
+
+    def record_utterance(self) -> np.ndarray:
+        self.record_calls += 1
+        if self.record_calls == 1:
+            return np.ones(160, dtype=np.float32)
+        raise KeyboardInterrupt()
 
 
 class TestMainBargeIn(unittest.TestCase):
@@ -175,7 +198,7 @@ class TestMainBargeIn(unittest.TestCase):
         ):
             with patch(
                 "alwin_voice.main.FasterWhisperTranscriber",
-                return_value=_FakeTranscriber("Kan du upprepa?"),
+                return_value=_FakeTranscriber(texts=["Hej", "Kan du upprepa?"]),
             ):
                 with patch(
                     "alwin_voice.main.ConversationContext", return_value=fake_context
@@ -189,14 +212,74 @@ class TestMainBargeIn(unittest.TestCase):
                             with self.assertRaises(KeyboardInterrupt):
                                 run_chat_loop(cfg)
 
-        self.assertEqual(fake_audio.playback_stops, 1)
-        self.assertEqual(fake_audio.record_calls, 2)
+        self.assertEqual(fake_audio.playback_stops, 2)
+        self.assertEqual(fake_audio.record_calls, 3)
         self.assertEqual(fake_audio.monitor_starts, 1)
-        self.assertEqual(fake_audio.monitor_stops, 1)
-        self.assertEqual(fake_context.users, ["Kan du upprepa?"])
+        self.assertGreaterEqual(fake_audio.monitor_stops, 1)
+        self.assertEqual(fake_context.users, ["Hej"])
         self.assertEqual(fake_context.assistants, [])
 
-    def test_non_question_speech_is_ignored_before_assistant_turn(self) -> None:
+    def test_non_question_normal_turn_is_not_filtered(self) -> None:
+        fake_audio = _NoBargeAudio()
+        fake_context = _FakeContext(max_turns=12)
+
+        cfg = AppConfig(
+            ollama_endpoint="http://127.0.0.1:11434",
+            ollama_model="llama3.1:8b",
+            system_prompt="sys",
+            cpu_mode=False,
+            stt_model="small",
+            stt_device="cpu",
+            stt_compute_type="float16",
+            stt_language="sv",
+            piper_executable="piper",
+            piper_model_path=Path("/tmp/model.onnx"),
+            piper_config_path=None,
+            audio_sample_rate=16000,
+            audio_channels=1,
+            audio_blocksize=512,
+            listen_max_seconds=12.0,
+            vad_start_threshold=0.01,
+            vad_end_threshold=0.016,
+            vad_silence_seconds=0.2,
+            vad_preroll_seconds=0.3,
+            barge_in_rms_threshold=0.03,
+            vad_engine="rms",
+            silero_threshold=0.5,
+            barge_in_silero_threshold=0.75,
+            silero_min_silence_ms=150,
+            silero_speech_pad_ms=20,
+            context_turns=12,
+            tts_speaker=None,
+            tts_length_scale=1.0,
+            audio_backend="local",
+        )
+
+        with patch(
+            "alwin_voice.main.build_audio_backend", return_value=(fake_audio, [])
+        ):
+            with patch(
+                "alwin_voice.main.FasterWhisperTranscriber",
+                return_value=_FakeTranscriber("det här är ett påstående"),
+            ):
+                with patch(
+                    "alwin_voice.main.ConversationContext", return_value=fake_context
+                ):
+                    with patch(
+                        "alwin_voice.main.OllamaClient", return_value=_FakeLLM()
+                    ):
+                        with patch(
+                            "alwin_voice.main.PiperEngine", side_effect=_FakePiperEngine
+                        ):
+                            with self.assertRaises(KeyboardInterrupt):
+                                run_chat_loop(cfg)
+
+        self.assertEqual(fake_audio.monitor_starts, 1)
+        self.assertEqual(fake_audio.playback_stops, 0)
+        self.assertEqual(fake_context.users, ["det här är ett påstående"])
+        self.assertEqual(fake_context.assistants, ["Det blir avbrutet."])
+
+    def test_non_question_barge_in_candidate_is_ignored(self) -> None:
         fake_audio = _FakeAudio()
         fake_context = _FakeContext(max_turns=12)
 
@@ -237,7 +320,7 @@ class TestMainBargeIn(unittest.TestCase):
         ):
             with patch(
                 "alwin_voice.main.FasterWhisperTranscriber",
-                return_value=_FakeTranscriber("hmm"),
+                return_value=_FakeTranscriber(texts=["Vad händer", "hmm"]),
             ):
                 with patch(
                     "alwin_voice.main.ConversationContext", return_value=fake_context
@@ -251,10 +334,9 @@ class TestMainBargeIn(unittest.TestCase):
                             with self.assertRaises(KeyboardInterrupt):
                                 run_chat_loop(cfg)
 
-        self.assertEqual(fake_audio.monitor_starts, 0)
-        self.assertEqual(fake_audio.playback_stops, 0)
-        self.assertEqual(fake_context.users, [])
-        self.assertEqual(fake_context.assistants, [])
+        self.assertGreaterEqual(fake_audio.playback_stops, 1)
+        self.assertEqual(fake_context.users, ["Vad händer"])
+        self.assertEqual(fake_context.assistants, ["Det blir avbrutet."])
 
 
 if __name__ == "__main__":
