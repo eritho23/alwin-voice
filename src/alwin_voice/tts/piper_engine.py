@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,8 +21,42 @@ class PiperEngine:
     def __init__(self, cfg: PiperConfig) -> None:
         self.cfg = cfg
 
+    def _sanitize_tts_text(self, text: str) -> str:
+        normalized = unicodedata.normalize("NFKC", text)
+        replacements = {
+            "\u2010": "-",
+            "\u2011": "-",
+            "\u2012": "-",
+            "\u2013": "-",
+            "\u2014": "-",
+            "\u2015": "-",
+            "\u2018": "'",
+            "\u2019": "'",
+            "\u201c": '"',
+            "\u201d": '"',
+            "\u2026": "...",
+            "\xa0": " ",
+        }
+        for source, target in replacements.items():
+            normalized = normalized.replace(source, target)
+
+        allowed_punctuation = set(" .,!?;:'\"-()[]/%&+=*@#\n\r\t")
+        sanitized_chars: list[str] = []
+        for ch in normalized:
+            if ch.isascii() and (ch.isalnum() or ch in allowed_punctuation):
+                sanitized_chars.append(ch)
+                continue
+            if ch in {"å", "ä", "ö", "Å", "Ä", "Ö"}:
+                sanitized_chars.append(ch)
+
+        sanitized = "".join(sanitized_chars)
+        sanitized = re.sub(r"\s+", " ", sanitized)
+        return sanitized.strip()
+
     def synthesize_to_wav(self, text: str) -> Path:
-        if not text.strip():
+        sanitized_text = self._sanitize_tts_text(text)
+
+        if not sanitized_text:
             raise ValueError("Cannot synthesize empty text")
 
         with tempfile.NamedTemporaryFile(
@@ -48,7 +84,7 @@ class PiperEngine:
         # on the host locale (which can trigger charmap errors).
         subprocess.run(
             cmd,
-            input=text.encode("utf-8"),
+            input=sanitized_text.encode("utf-8"),
             check=True,
             capture_output=True,
         )
