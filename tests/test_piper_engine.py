@@ -22,8 +22,9 @@ class TestPiperEngine(unittest.TestCase):
 
         self.assertTrue(wav_path.exists())
         kwargs = mock_run.call_args.kwargs
-        self.assertEqual(kwargs["input"], "Hej-värld".encode("utf-8"))
-        self.assertNotIn("text", kwargs)
+        self.assertEqual(kwargs["input"], "Hej-värld")
+        self.assertTrue(kwargs["text"])
+        self.assertEqual(kwargs["encoding"], "utf-8")
 
         wav_path.unlink(missing_ok=True)
 
@@ -42,7 +43,9 @@ class TestPiperEngine(unittest.TestCase):
 
         self.assertTrue(wav_path.exists())
         kwargs = mock_run.call_args.kwargs
-        self.assertEqual(kwargs["input"], "Hej åäö!".encode("utf-8"))
+        self.assertEqual(kwargs["input"], "Hej åäö!")
+        self.assertTrue(kwargs["text"])
+        self.assertEqual(kwargs["encoding"], "utf-8")
 
         wav_path.unlink(missing_ok=True)
 

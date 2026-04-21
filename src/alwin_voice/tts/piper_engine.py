@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import tempfile
@@ -80,13 +81,20 @@ class PiperEngine:
         if self.cfg.speaker is not None:
             cmd.extend(["--speaker", str(self.cfg.speaker)])
 
-        # Send UTF-8 bytes explicitly so subprocess input encoding does not depend
-        # on the host locale (which can trigger charmap errors).
+        env = os.environ.copy()
+        env.setdefault("LANG", "C.UTF-8")
+        env.setdefault("LC_CTYPE", "C.UTF-8")
+
+        # Send UTF-8 text explicitly and pin locale defaults for Piper so Swedish
+        # characters are decoded consistently across host environments.
         subprocess.run(
             cmd,
-            input=sanitized_text.encode("utf-8"),
+            input=sanitized_text,
+            text=True,
+            encoding="utf-8",
             check=True,
             capture_output=True,
+            env=env,
         )
 
         return Path(output_path)
