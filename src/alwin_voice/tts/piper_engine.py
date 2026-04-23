@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _strip_tilde_characters(text: str) -> str:
+    return "".join(ch for ch in text if "TILDE" not in unicodedata.name(ch, ""))
+
+
 @dataclass(slots=True)
 class PiperConfig:
     executable: str
@@ -24,6 +28,7 @@ class PiperEngine:
 
     def _sanitize_tts_text(self, text: str) -> str:
         normalized = unicodedata.normalize("NFKC", text)
+        normalized = _strip_tilde_characters(normalized)
         replacements = {
             "\u2010": "-",
             "\u2011": "-",

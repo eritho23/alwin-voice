@@ -49,6 +49,30 @@ class TestPiperEngine(unittest.TestCase):
 
         wav_path.unlink(missing_ok=True)
 
+    def test_synthesize_strips_tilde_variants(self) -> None:
+        cfg = PiperConfig(
+            executable="piper",
+            model_path=Path("/tmp/model.onnx"),
+            config_path=None,
+            speaker=None,
+            length_scale=1.0,
+        )
+        engine = PiperEngine(cfg)
+
+        with patch("subprocess.run") as mock_run:
+            wav_path = engine.synthesize_to_wav("Hej~ h\u02dcall\u00e5 a\u0303!")
+
+        self.assertTrue(wav_path.exists())
+        kwargs = mock_run.call_args.kwargs
+        self.assertIn("all\u00e5", kwargs["input"])
+        self.assertIn("Hej", kwargs["input"])
+        self.assertIn("a", kwargs["input"])
+        self.assertNotIn("~", kwargs["input"])
+        self.assertTrue(kwargs["text"])
+        self.assertEqual(kwargs["encoding"], "utf-8")
+
+        wav_path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()

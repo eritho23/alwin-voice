@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass
 from typing import Iterator
 
 import requests
+
+
+def _strip_tilde_characters(text: str) -> str:
+    return "".join(ch for ch in text if "TILDE" not in unicodedata.name(ch, ""))
 
 
 @dataclass(slots=True)
@@ -25,13 +30,15 @@ class OllamaClient:
             response = requests.post(url, json=payload, timeout=self.timeout_seconds)
             response.raise_for_status()
             data = response.json()
-            return data["message"]["content"].strip()
+            content = data["message"]["content"].strip()
+            return _strip_tilde_characters(content)
         except requests.RequestException:
             # One retry for transient network hiccups.
             response = requests.post(url, json=payload, timeout=self.timeout_seconds)
             response.raise_for_status()
             data = response.json()
-            return data["message"]["content"].strip()
+            content = data["message"]["content"].strip()
+            return _strip_tilde_characters(content)
 
     def chat_stream(self, messages: list[dict[str, str]]) -> Iterator[str]:
         url = self.endpoint.rstrip("/") + "/api/chat"
@@ -57,7 +64,7 @@ class OllamaClient:
                 message = data.get("message") or {}
                 token = message.get("content") or ""
                 if token:
-                    yield token
+                    yield _strip_tilde_characters(token)
 
                 if data.get("done"):
                     break
