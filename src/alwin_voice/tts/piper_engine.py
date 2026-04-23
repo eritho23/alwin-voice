@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import unicodedata
 from dataclasses import dataclass
@@ -61,6 +62,7 @@ class PiperEngine:
 
     def synthesize_to_wav(self, text: str) -> Path:
         sanitized_text = self._sanitize_tts_text(text)
+        print(f"[Piper input] {sanitized_text!r}", file=sys.stderr)
 
         if not sanitized_text:
             raise ValueError("Cannot synthesize empty text")
