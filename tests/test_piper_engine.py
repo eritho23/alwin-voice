@@ -73,6 +73,30 @@ class TestPiperEngine(unittest.TestCase):
 
         wav_path.unlink(missing_ok=True)
 
+    def test_synthesize_uses_input_file_on_windows(self) -> None:
+        cfg = PiperConfig(
+            executable="piper",
+            model_path=Path("/tmp/model.onnx"),
+            config_path=None,
+            speaker=None,
+            length_scale=1.0,
+        )
+        engine = PiperEngine(cfg)
+
+        with patch.object(engine, "_use_input_file_for_tts", return_value=True):
+            with patch("subprocess.run") as mock_run:
+                wav_path = engine.synthesize_to_wav("Vad händer?")
+
+        self.assertTrue(wav_path.exists())
+        args = mock_run.call_args.args[0]
+        kwargs = mock_run.call_args.kwargs
+        self.assertIn("--input_file", args)
+        self.assertNotIn("input", kwargs)
+        self.assertTrue(kwargs["text"])
+        self.assertEqual(kwargs["encoding"], "utf-8")
+
+        wav_path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
