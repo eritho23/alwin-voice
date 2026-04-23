@@ -5,8 +5,13 @@ import queue
 import re
 import subprocess
 import sys
+import tempfile
 import threading
+import wave
 from pathlib import Path
+
+import numpy as np
+import sounddevice as sd
 
 from alwin_voice.audio.backends import AudioBackend, build_audio_backend
 from alwin_voice.config.settings import AppConfig, load_config, validate_config
@@ -65,6 +70,118 @@ def _extract_complete_sentences(text: str) -> tuple[list[str], str]:
     completed = [p.strip() for p in parts[:-1] if p.strip()]
     remainder = parts[-1]
     return completed, remainder
+
+
+def _rms_level(audio: np.ndarray) -> float:
+    if audio.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
+
+
+def _capture_mic_sample(
+    sample_rate: int,
+    channels: int,
+    duration_seconds: float,
+) -> np.ndarray:
+    frames = max(1, int(sample_rate * duration_seconds))
+    recording = sd.rec(
+        frames,
+        samplerate=sample_rate,
+        channels=channels,
+        dtype="float32",
+        blocking=True,
+    )
+
+    if channels > 1:
+        mono = recording.mean(axis=1)
+    else:
+        mono = recording[:, 0]
+
+    return mono.astype(np.float32)
+
+
+def _write_selftest_wav(path: Path, sample_rate: int) -> None:
+    duration_s = 0.4
+    tone_hz = 740.0
+    t = np.linspace(
+        0,
+        duration_s,
+        int(sample_rate * duration_s),
+        endpoint=False,
+        dtype=np.float32,
+    )
+    waveform = 0.22 * np.sin(2 * np.pi * tone_hz * t)
+    pcm = np.clip(waveform * 32767.0, -32768.0, 32767.0).astype(np.int16)
+
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm.tobytes())
+
+
+def run_audio_selftest(
+    config: AppConfig,
+    audio: AudioBackend,
+    notes: list[str],
+    duration_seconds: float,
+) -> int:
+    print("Audio self-test:")
+    for note in notes:
+        print(note)
+    for line in audio.diagnostics():
+        print(line)
+
+    errors = audio.check()
+    if errors:
+        _print_config_errors(errors)
+        return 2
+
+    try:
+        print("- Speaker test: start/end tones")
+        audio.play_listen_start()
+        audio.play_listen_end()
+
+        print("- Speaker test: WAV playback path")
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
+            wav_path = Path(handle.name)
+        try:
+            _write_selftest_wav(wav_path, sample_rate=config.audio_sample_rate)
+            audio.play_wav_file(wav_path)
+        finally:
+            wav_path.unlink(missing_ok=True)
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"Audio self-test speaker failure: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        print(f"- Microphone test: capture {duration_seconds:.1f}s")
+        mic_audio = _capture_mic_sample(
+            sample_rate=config.audio_sample_rate,
+            channels=config.audio_channels,
+            duration_seconds=duration_seconds,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        print(f"Audio self-test microphone failure: {exc}", file=sys.stderr)
+        return 2
+
+    rms = _rms_level(mic_audio)
+    peak = float(np.max(np.abs(mic_audio))) if mic_audio.size else 0.0
+    print(f"- Microphone level: rms={rms:.5f}, peak={peak:.5f}")
+
+    if mic_audio.size == 0:
+        print("Audio self-test microphone failure: captured empty buffer", file=sys.stderr)
+        return 2
+
+    if peak < 1e-4:
+        print(
+            "Audio self-test microphone failure: captured near-silence only; check mute/device selection.",
+            file=sys.stderr,
+        )
+        return 2
+
+    print("Audio self-test passed.")
+    return 0
 
 
 def _tts_worker(
@@ -284,6 +401,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Validate runtime configuration and exit",
     )
+    parser.add_argument(
+        "--audio-selftest",
+        action="store_true",
+        help="Run speaker/microphone self-tests and exit",
+    )
+    parser.add_argument(
+        "--selftest-seconds",
+        type=float,
+        default=1.5,
+        help="Microphone capture duration for --audio-selftest (seconds)",
+    )
     return parser.parse_args()
 
 
@@ -291,9 +419,20 @@ def main() -> int:
     args = parse_args()
     cfg = load_config()
 
-    errors = validate_config(cfg)
+    audio, notes = build_audio_backend(cfg)
 
-    audio, _ = build_audio_backend(cfg)
+    if args.audio_selftest:
+        if args.selftest_seconds <= 0:
+            _print_config_errors(["--selftest-seconds must be > 0"])
+            return 2
+        return run_audio_selftest(
+            config=cfg,
+            audio=audio,
+            notes=notes,
+            duration_seconds=args.selftest_seconds,
+        )
+
+    errors = validate_config(cfg)
     errors.extend(audio.check())
 
     client = OllamaClient(endpoint=cfg.ollama_endpoint, model=cfg.ollama_model)

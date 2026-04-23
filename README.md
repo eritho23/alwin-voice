@@ -105,6 +105,10 @@ Validation only:
 
 ```bash
 alwin-voice --check
+
+# Audio hardware/backend self-test
+alwin-voice --audio-selftest
+alwin-voice --audio-selftest --selftest-seconds 2.0
 ```
 
 Start voice chat loop:
@@ -126,6 +130,7 @@ Linux/macOS:
 
 ```bash
 PYTHONPATH=src python -m alwin_voice.main --check
+PYTHONPATH=src python -m alwin_voice.main --audio-selftest
 PYTHONPATH=src python -m alwin_voice.main
 ```
 
@@ -134,8 +139,16 @@ Windows PowerShell:
 ```powershell
 $env:PYTHONPATH = "src"
 python -m alwin_voice.main --check
+python -m alwin_voice.main --audio-selftest
 python -m alwin_voice.main
 ```
+
+`--audio-selftest` behavior:
+
+- Prints backend selection notes and diagnostics.
+- Runs speaker tone playback and WAV-path playback through the active backend.
+- Captures microphone audio for `--selftest-seconds` (default `1.5`) and reports
+	RMS/peak levels.
 
 Runtime flow per turn:
 
@@ -149,19 +162,29 @@ Runtime flow per turn:
 8. Piper synthesizes response audio
 9. Response audio plays immediately
 
-## Unitree R1 backend (initial)
+## Unitree backend
 
-The project now has a pluggable audio backend layer:
+The project has a pluggable audio backend layer:
 
 - `local`: use `sounddevice` for microphone and speaker I/O
-- `unitree`: probe Unitree SDK2 Python modules and use robot backend path
-- `auto`: prefer Unitree backend when SDK is importable, otherwise fall back to local
+- `unitree`: force Unitree backend behavior
+- `auto`: choose Unitree only when Unitree SDK2 is importable and runtime looks like a Unitree robot
 
 Current implementation status:
 
-- Unitree SDK capability probing is implemented.
-- Mic/speaker I/O still uses local `sounddevice` fallback while Unitree-specific
-	audio API integration is completed incrementally.
+- Unitree SDK2 probing validates `unitree_sdk2py`, `unitree_sdk2py.core.channel`, and
+	`unitree_sdk2py.g1.audio.g1_audio_client`.
+- Runtime auto-detection checks common Unitree robot markers and only auto-selects
+	Unitree on robot.
+- Microphone capture uses local `sounddevice` input on robot compute.
+- Speaker playback uses Unitree G1 `AudioClient.PlayStream` when available, with
+	local playback fallback.
+
+Environment overrides:
+
+- `ALWIN_UNITREE_ROBOT=true|false` explicitly override robot runtime detection.
+- `ALWIN_UNITREE_NET_IFACE=<iface>` optionally set the network interface passed to
+	`ChannelFactoryInitialize`.
 
 To prepare Unitree SDK2 Python on robot:
 
