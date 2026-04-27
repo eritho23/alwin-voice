@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import importlib
 import os
+import socket
+import struct
 import threading
 import time
 import wave
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -235,6 +238,7 @@ class LocalAudioBackend:
 
 class UnitreeAudioBackend:
     def __init__(self, config: AppConfig) -> None:
+        self._config = config
         self._local = LocalAudioBackend(config)
         self._probe = probe_unitree_sdk()
         self._unitree_audio_client: Any | None = None
@@ -242,6 +246,9 @@ class UnitreeAudioBackend:
         self._unitree_channel_initialized = False
         self._unitree_play_lock = threading.Lock()
         self._stream_counter = 0
+        self._network_mode = config.unitree_network_mode
+        self._strict_unitree = config.audio_backend == "unitree" or self._network_mode
+        self._last_multicast_packet_count = 0
 
     @property
     def name(self) -> str:
@@ -253,7 +260,7 @@ class UnitreeAudioBackend:
 
     def _can_use_unitree_speaker(self) -> bool:
         return (
-            self._probe.running_on_robot
+            (self._probe.running_on_robot or self._network_mode)
             and self._probe.channel_api_available
             and self._probe.g1_audio_api_available
         )
@@ -279,7 +286,7 @@ class UnitreeAudioBackend:
             channel_module = importlib.import_module("unitree_sdk2py.core.channel")
             if not self._unitree_channel_initialized:
                 init_fn = getattr(channel_module, "ChannelFactoryInitialize")
-                iface = os.getenv("ALWIN_UNITREE_NET_IFACE", "").strip()
+                iface = self._config.unitree_net_iface or ""
                 if iface:
                     init_fn(0, iface)
                 else:
@@ -354,6 +361,86 @@ class UnitreeAudioBackend:
                 offset += len(chunk)
             return True
 
+    def _record_utterance_via_multicast(self) -> np.ndarray:
+        group = self._config.unitree_multicast_group
+        port = self._config.unitree_multicast_port
+        local_ip = self._config.unitree_multicast_local_ip or "0.0.0.0"
+        sample_rate = self._config.audio_sample_rate
+        frame_duration = self._config.audio_blocksize / sample_rate
+        preroll_blocks = max(0, int(self._config.vad_preroll_seconds / frame_duration))
+        preroll: deque[np.ndarray] = deque(maxlen=preroll_blocks)
+        captured: list[np.ndarray] = []
+        started = False
+        silence_accum = 0.0
+        start_time = time.monotonic()
+        packet_timeout_count = 0
+        max_packets_without_data = max(
+            1, int(self._config.unitree_mic_timeout_seconds / 0.2)
+        )
+        max_duration = self._config.listen_max_seconds
+        packets_received = 0
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("", port))
+            membership = struct.pack(
+                "4s4s",
+                socket.inet_aton(group),
+                socket.inet_aton(local_ip),
+            )
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+            sock.settimeout(0.2)
+
+            while True:
+                if time.monotonic() - start_time >= max_duration:
+                    break
+
+                try:
+                    payload, _addr = sock.recvfrom(4096)
+                except socket.timeout:
+                    packet_timeout_count += 1
+                    if not started and packet_timeout_count >= max_packets_without_data:
+                        break
+                    continue
+
+                packet_timeout_count = 0
+                if not payload:
+                    continue
+                packets_received += 1
+
+                pcm = np.frombuffer(payload, dtype=np.int16)
+                if pcm.size == 0:
+                    continue
+
+                mono = (pcm.astype(np.float32) / 32768.0).copy()
+                energy = float(np.sqrt(np.mean(np.square(mono), dtype=np.float64)))
+                duration = mono.size / sample_rate
+
+                if not started and preroll_blocks > 0:
+                    preroll.append(mono)
+
+                if not started:
+                    if energy >= self._config.vad_start_threshold:
+                        started = True
+                        captured.extend(preroll)
+                        captured.append(mono)
+                else:
+                    captured.append(mono)
+                    if energy < self._config.vad_end_threshold:
+                        silence_accum += duration
+                        if silence_accum >= self._config.vad_silence_seconds:
+                            break
+                    else:
+                        silence_accum = 0.0
+        finally:
+            sock.close()
+            self._last_multicast_packet_count = packets_received
+
+        if not captured:
+            return np.array([], dtype=np.float32)
+        return np.concatenate(captured).astype(np.float32)
+
     def _play_tone_via_unitree(self, frequency_hz: float, duration_ms: int) -> bool:
         sample_rate = 16000
         duration_s = duration_ms / 1000.0
@@ -384,12 +471,24 @@ class UnitreeAudioBackend:
             )
 
         if not self._probe.running_on_robot:
-            errors.append(
-                "Unitree backend requested but Unitree robot runtime not detected. "
-                "Set ALWIN_AUDIO_BACKEND=local, or set ALWIN_UNITREE_ROBOT=true for explicit override."
-            )
+            if self._network_mode:
+                pass
+            else:
+                errors.append(
+                    "Unitree backend requested but Unitree robot runtime not detected. "
+                    "Set ALWIN_UNITREE_NETWORK_MODE=true for external-PC network deployment."
+                )
 
-        errors.extend(self._check_local_input_device())
+        if self._network_mode:
+            if not self._config.unitree_net_iface:
+                errors.append(
+                    "ALWIN_UNITREE_NET_IFACE is required in Unitree network mode"
+                )
+
+        if self._network_mode:
+            pass
+        else:
+            errors.extend(self._check_local_input_device())
 
         if self._can_use_unitree_speaker() and not self._ensure_unitree_audio_client():
             errors.append(
@@ -399,15 +498,31 @@ class UnitreeAudioBackend:
         return errors
 
     def record_utterance(self) -> np.ndarray:
-        # Capture uses local ALSA/PortAudio device on the robot computer.
+        if self._network_mode:
+            recorded = self._record_utterance_via_multicast()
+            if (
+                recorded.size == 0
+                and self._strict_unitree
+                and self._last_multicast_packet_count == 0
+            ):
+                raise RuntimeError(
+                    "No microphone packets received from Unitree multicast stream"
+                )
+            return recorded
+
+        # Capture uses local ALSA/PortAudio device.
         return self._local.record_utterance()
 
     def play_listen_start(self) -> None:
         if not self._play_tone_via_unitree(frequency_hz=880.0, duration_ms=120):
+            if self._strict_unitree:
+                raise RuntimeError("Unitree speaker path unavailable for start tone")
             self._local.play_listen_start()
 
     def play_listen_end(self) -> None:
         if not self._play_tone_via_unitree(frequency_hz=660.0, duration_ms=120):
+            if self._strict_unitree:
+                raise RuntimeError("Unitree speaker path unavailable for end tone")
             self._local.play_listen_end()
 
     def play_wav_file(self, path: Path) -> None:
@@ -415,9 +530,12 @@ class UnitreeAudioBackend:
             pcm = self._load_wav_pcm16_mono_16k(path)
             if self._play_pcm_via_unitree(pcm):
                 return
-        except Exception:  # pylint: disable=broad-except
-            pass
+        except Exception as exc:  # pylint: disable=broad-except
+            if self._strict_unitree:
+                raise RuntimeError(f"Failed to play WAV via Unitree speaker: {exc}") from exc
 
+        if self._strict_unitree:
+            raise RuntimeError("Unitree speaker path unavailable for WAV playback")
         self._local.play_wav_file(path)
 
     def stop_playback(self) -> None:
@@ -455,14 +573,20 @@ class UnitreeAudioBackend:
             if self._can_use_unitree_speaker()
             else "local sounddevice fallback"
         )
+        mic_path = (
+            f"network multicast {self._config.unitree_multicast_group}:{self._config.unitree_multicast_port}"
+            if self._network_mode
+            else "local sounddevice input"
+        )
 
         return [
             f"Audio backend unitree: SDK module={sdk_status}",
             f"Audio backend unitree: Channel module={channel_status}",
             f"Audio backend unitree: G1 audio module={g1_audio_status}",
             f"Audio backend unitree: VUI module={vui_status}",
+            f"Audio backend unitree: network_mode={self._network_mode}",
             f"Audio backend unitree: runtime={runtime_status}, marker={runtime_marker}",
-            "Audio backend unitree: microphone path=local sounddevice input",
+            f"Audio backend unitree: microphone path={mic_path}",
             f"Audio backend unitree: speaker path={speaker_path}",
         ]
 
@@ -483,7 +607,9 @@ def build_audio_backend(config: AppConfig) -> tuple[AudioBackend, list[str]]:
 
     # auto mode
     candidate = UnitreeAudioBackend(config)
-    if candidate.probe.sdk_available and candidate.probe.running_on_robot:
+    if candidate.probe.sdk_available and (
+        candidate.probe.running_on_robot or config.unitree_network_mode
+    ):
         notes.append("Audio backend selection: auto chose unitree")
         return candidate, notes
 

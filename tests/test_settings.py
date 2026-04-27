@@ -32,6 +32,27 @@ class TestSettings(unittest.TestCase):
                 else:
                     os.environ["ALWIN_PIPER_MODEL"] = original
 
+    def test_load_config_model_default_falls_back_to_alma(self) -> None:
+        original_env = os.environ.pop("ALWIN_PIPER_MODEL", None)
+        original_cwd = Path.cwd()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                model_dir = root / "models" / "piper"
+                model_dir.mkdir(parents=True)
+                fallback_model = model_dir / "sv_SE-alma-medium.onnx"
+                fallback_model.write_bytes(b"x")
+
+                os.chdir(root)
+                cfg = load_config()
+                self.assertEqual(
+                    cfg.piper_model_path, Path("models/piper/sv_SE-alma-medium.onnx")
+                )
+        finally:
+            os.chdir(original_cwd)
+            if original_env is not None:
+                os.environ["ALWIN_PIPER_MODEL"] = original_env
+
     def test_load_config_cpu_mode_default_and_env(self) -> None:
         original = os.environ.pop("ALWIN_CPU_MODE", None)
         try:

@@ -61,7 +61,7 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_CPU_MODE` default: `false` (`true` uses CPU-suitable STT settings for dev/testing)
 - `ALWIN_STT_LANGUAGE` default: `sv`
 - `ALWIN_PIPER_BIN` default: `piper` on Linux/macOS, `piper.exe` on Windows
-- `ALWIN_PIPER_MODEL` default: `./models/piper/sv_SE-nst-medium.onnx`
+- `ALWIN_PIPER_MODEL` default: `./models/piper/sv_SE-nst-medium.onnx` (falls back to `./models/piper/sv_SE-alma-medium.onnx` when present)
 - `ALWIN_PIPER_CONFIG` optional path to Piper config JSON
 - `ALWIN_TTS_SPEAKER` optional speaker id
 - `ALWIN_TTS_LENGTH_SCALE` default: `1.0`
@@ -80,13 +80,19 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_SILERO_SPEECH_PAD_MS` default: `20`
 - `ALWIN_CONTEXT_TURNS` default: `12`
 - `ALWIN_AUDIO_BACKEND` default: `auto` (`auto`, `unitree`, `local`)
+- `ALWIN_UNITREE_NETWORK_MODE` default: `false` (set `true` when running on an external PC connected to G1 over network)
+- `ALWIN_UNITREE_NET_IFACE` optional network interface used for Unitree channel init (required in network mode)
+- `ALWIN_UNITREE_MULTICAST_GROUP` default: `239.168.123.161` (G1 microphone multicast group)
+- `ALWIN_UNITREE_MULTICAST_PORT` default: `5555` (G1 microphone multicast port)
+- `ALWIN_UNITREE_MULTICAST_LOCAL_IP` optional local IPv4 to join multicast with (default `0.0.0.0`)
+- `ALWIN_UNITREE_MIC_TIMEOUT_SECONDS` default: `2.0` (no-packet timeout before mic capture fails in network mode)
 
 Example:
 
 ```bash
 export ALWIN_OLLAMA_ENDPOINT="http://192.168.1.20:11434"
 export ALWIN_OLLAMA_MODEL="qwen2.5:7b"
-export ALWIN_PIPER_MODEL="$PWD/models/piper/sv_SE-nst-medium.onnx"
+export ALWIN_PIPER_MODEL="$PWD/models/piper/sv_SE-alma-medium.onnx"
 export ALWIN_VAD_ENGINE="silero"
 ```
 
@@ -95,7 +101,7 @@ Windows PowerShell example:
 ```powershell
 $env:ALWIN_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
 $env:ALWIN_OLLAMA_MODEL = "qwen2.5:7b"
-$env:ALWIN_PIPER_MODEL = "$PWD\models\piper\sv_SE-nst-medium.onnx"
+$env:ALWIN_PIPER_MODEL = "$PWD\models\piper\sv_SE-alma-medium.onnx"
 $env:ALWIN_CPU_MODE = "true"
 ```
 
@@ -176,15 +182,21 @@ Current implementation status:
 	`unitree_sdk2py.g1.audio.g1_audio_client`.
 - Runtime auto-detection checks common Unitree robot markers and only auto-selects
 	Unitree on robot.
-- Microphone capture uses local `sounddevice` input on robot compute.
-- Speaker playback uses Unitree G1 `AudioClient.PlayStream` when available, with
-	local playback fallback.
+- In explicit network mode (`ALWIN_UNITREE_NETWORK_MODE=true`), Unitree backend can run from an external PC.
+- Microphone capture in network mode receives robot mic audio from multicast
+	`239.168.123.161:5555` (configurable via env vars).
+- Speaker playback uses Unitree G1 `AudioClient.PlayStream`.
+- Forced Unitree mode (`ALWIN_AUDIO_BACKEND=unitree` or network mode enabled) surfaces
+	errors instead of silently falling back to local speaker playback.
 
 Environment overrides:
 
 - `ALWIN_UNITREE_ROBOT=true|false` explicitly override robot runtime detection.
-- `ALWIN_UNITREE_NET_IFACE=<iface>` optionally set the network interface passed to
+- `ALWIN_UNITREE_NET_IFACE=<iface>` set the network interface passed to
 	`ChannelFactoryInitialize`.
+- `ALWIN_UNITREE_NETWORK_MODE=true` enable external-PC network deployment.
+- `ALWIN_UNITREE_MULTICAST_GROUP` / `ALWIN_UNITREE_MULTICAST_PORT` configure robot mic stream.
+- `ALWIN_UNITREE_MULTICAST_LOCAL_IP` optionally set local IPv4 used for multicast join.
 
 To prepare Unitree SDK2 Python on robot:
 
