@@ -120,6 +120,7 @@ def _cfg() -> AppConfig:
         unitree_multicast_port=5555,
         unitree_multicast_local_ip=None,
         unitree_mic_timeout_seconds=2.0,
+        unitree_local_mic=False,
     )
 
 

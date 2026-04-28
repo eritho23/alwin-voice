@@ -86,6 +86,7 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_UNITREE_MULTICAST_PORT` default: `5555` (G1 microphone multicast port).
 - `ALWIN_UNITREE_MULTICAST_LOCAL_IP` optional local IPv4 to join multicast with (default `0.0.0.0`). Set this to the IP of your computer running this code on the robot's network (e.g., `192.168.123.222`). This is crucial to ensure the OS routes the multicast subscription correctly!
 - `ALWIN_UNITREE_MIC_TIMEOUT_SECONDS` default: `2.0` (no-packet timeout before mic capture fails in network mode)
+- `ALWIN_UNITREE_LOCAL_MIC` default: `false` (set `true` to keep Unitree speaker playback while recording from this computer's local microphone)
 
 Example:
 
@@ -185,6 +186,7 @@ Current implementation status:
 - In explicit network mode (`ALWIN_UNITREE_NETWORK_MODE=true`), Unitree backend can run from an external PC.
 - Microphone capture in network mode receives robot mic audio from multicast
 	`239.168.123.161:5555` (configurable via env vars).
+- In network mode, set `ALWIN_UNITREE_LOCAL_MIC=true` to use this computer's microphone instead of robot multicast mic input.
 - Speaker playback uses Unitree G1 `AudioClient.PlayStream`.
 - Forced Unitree mode (`ALWIN_AUDIO_BACKEND=unitree` or network mode enabled) surfaces
 	errors instead of silently falling back to local speaker playback.
@@ -195,6 +197,7 @@ Environment overrides:
 - `ALWIN_UNITREE_NET_IFACE=<iface>` set the network interface passed to
 	`ChannelFactoryInitialize`.
 - `ALWIN_UNITREE_NETWORK_MODE=true` enable external-PC network deployment.
+- `ALWIN_UNITREE_LOCAL_MIC=true` keep Unitree speaker output but use local microphone capture.
 - `ALWIN_UNITREE_MULTICAST_GROUP` / `ALWIN_UNITREE_MULTICAST_PORT` configure robot mic stream.
 - `ALWIN_UNITREE_MULTICAST_LOCAL_IP` optionally set local IPv4 used for multicast join.
 

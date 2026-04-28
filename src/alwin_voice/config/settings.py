@@ -44,6 +44,7 @@ class AppConfig:
     unitree_multicast_port: int
     unitree_multicast_local_ip: str | None
     unitree_mic_timeout_seconds: float
+    unitree_local_mic: bool
 
 
 def _env_int(name: str, default: int) -> int:
@@ -141,6 +142,7 @@ def load_config() -> AppConfig:
             (os.getenv("ALWIN_UNITREE_MULTICAST_LOCAL_IP") or "").strip() or None
         ),
         unitree_mic_timeout_seconds=_env_float("ALWIN_UNITREE_MIC_TIMEOUT_SECONDS", 2.0),
+        unitree_local_mic=_env_bool("ALWIN_UNITREE_LOCAL_MIC", False),
     )
 
 

@@ -75,6 +75,7 @@ def _cfg(audio_backend: str = "auto") -> AppConfig:
         unitree_multicast_port=5555,
         unitree_multicast_local_ip=None,
         unitree_mic_timeout_seconds=2.0,
+        unitree_local_mic=False,
     )
 
 
@@ -203,6 +204,49 @@ class TestAudioBackends(unittest.TestCase):
         self.assertGreater(len(fake_client.play_calls), 0)
         self.assertEqual(local_calls, [])
 
+    def test_unitree_backend_accepts_32bit_pcm_wav(self) -> None:
+        cfg = _cfg(audio_backend="unitree")
+        backend = UnitreeAudioBackend(cfg)
+        backend._probe = UnitreeProbe(
+            sdk_module="unitree_sdk2py",
+            sdk_available=True,
+            channel_module="unitree_sdk2py.core.channel",
+            channel_api_available=True,
+            g1_audio_client_module="unitree_sdk2py.g1.audio.g1_audio_client",
+            g1_audio_api_available=True,
+            vui_module="unitree_sdk2py.go2.vui.vui_client",
+            vui_available=True,
+            running_on_robot=True,
+            robot_runtime_marker="env:ALWIN_UNITREE_ROBOT",
+        )
+
+        fake_client = _FakeUnitreeAudioClient()
+        backend._unitree_audio_client = fake_client
+        backend._ensure_unitree_audio_client = lambda: True
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            wav_path = Path(tmp.name)
+
+        samples = (0.1 * np.sin(2 * np.pi * 440 * np.arange(16000) / 16000)).astype(
+            np.float32
+        )
+        pcm32 = np.clip(samples * 2147483647.0, -2147483648.0, 2147483647.0).astype(
+            np.int32
+        )
+
+        with wave.open(str(wav_path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(4)
+            wf.setframerate(22050)
+            wf.writeframes(pcm32.tobytes())
+
+        try:
+            backend.play_wav_file(wav_path)
+        finally:
+            wav_path.unlink(missing_ok=True)
+
+        self.assertGreater(len(fake_client.play_calls), 0)
+
     def test_network_record_raises_only_when_no_packets(self) -> None:
         cfg = _cfg(audio_backend="unitree")
         cfg.unitree_network_mode = True
@@ -228,6 +272,34 @@ class TestAudioBackends(unittest.TestCase):
         backend._record_utterance_via_multicast = _fake_record_with_packets
         recorded = backend.record_utterance()
         self.assertEqual(recorded.size, 0)
+
+    def test_network_mode_can_use_local_microphone(self) -> None:
+        cfg = _cfg(audio_backend="unitree")
+        cfg.unitree_network_mode = True
+        cfg.unitree_local_mic = True
+        backend = UnitreeAudioBackend(cfg)
+
+        expected = np.array([0.1, -0.1], dtype=np.float32)
+        backend._local.record_utterance = lambda: expected
+        backend._record_utterance_via_multicast = lambda: np.array([], dtype=np.float32)
+
+        recorded = backend.record_utterance()
+        self.assertTrue(np.array_equal(recorded, expected))
+
+    def test_unitree_play_pcm_waits_after_stream_send(self) -> None:
+        cfg = _cfg(audio_backend="unitree")
+        backend = UnitreeAudioBackend(cfg)
+        fake_client = _FakeUnitreeAudioClient()
+        backend._unitree_audio_client = fake_client
+        backend._ensure_unitree_audio_client = lambda: True
+
+        pcm_bytes = (np.ones(3200, dtype=np.int16)).tobytes()
+        with patch("alwin_voice.audio.backends.time.sleep") as mocked_sleep:
+            ok = backend._play_pcm_via_unitree(pcm_bytes)
+
+        self.assertTrue(ok)
+        self.assertGreater(len(fake_client.play_calls), 0)
+        self.assertGreaterEqual(mocked_sleep.call_count, 1)
 
 
 if __name__ == "__main__":

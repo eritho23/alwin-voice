@@ -245,8 +245,8 @@ class UnitreeAudioBackend:
         self._unitree_stream_name = "alwin_voice"
         self._unitree_channel_initialized = False
         self._unitree_play_lock = threading.Lock()
-        self._stream_counter = 0
         self._network_mode = config.unitree_network_mode
+        self._use_local_mic = config.unitree_local_mic
         self._strict_unitree = config.audio_backend == "unitree" or self._network_mode
         self._last_multicast_packet_count = 0
 
@@ -324,17 +324,38 @@ class UnitreeAudioBackend:
             channels = wf.getnchannels()
             sample_rate = wf.getframerate()
             sample_width = wf.getsampwidth()
+            comp_type = wf.getcomptype()
             frames = wf.readframes(wf.getnframes())
 
-        if sample_width != 2:
-            raise ValueError("Unitree speaker stream requires 16-bit PCM WAV")
+        if comp_type != "NONE":
+            raise ValueError("Unitree speaker stream requires uncompressed PCM WAV")
 
-        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32)
+        if sample_width == 1:
+            # 8-bit PCM WAV uses unsigned samples.
+            audio = (np.frombuffer(frames, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+        elif sample_width == 2:
+            audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        elif sample_width == 3:
+            raw = np.frombuffer(frames, dtype=np.uint8)
+            if raw.size % 3 != 0:
+                raise ValueError("Invalid 24-bit PCM WAV payload length")
+            triples = raw.reshape(-1, 3).astype(np.int32)
+            signed = triples[:, 0] | (triples[:, 1] << 8) | (triples[:, 2] << 16)
+            signed = np.where(signed & 0x800000, signed - 0x1000000, signed)
+            audio = signed.astype(np.float32) / 8388608.0
+        elif sample_width == 4:
+            audio = np.frombuffer(frames, dtype=np.int32).astype(np.float32) / 2147483648.0
+        else:
+            raise ValueError(
+                "Unitree speaker stream requires PCM WAV with sample width 1/2/3/4 bytes"
+            )
+
         if channels > 1:
             audio = audio.reshape(-1, channels).mean(axis=1)
 
         audio = self._resample_to_16k(audio, sample_rate)
-        clipped = np.clip(audio, -32768.0, 32767.0).astype(np.int16)
+        clipped = np.clip(audio, -1.0, 1.0)
+        clipped = (clipped * 32767.0).astype(np.int16)
         return clipped.tobytes()
 
     def _play_pcm_via_unitree(self, pcm_bytes: bytes) -> bool:
@@ -345,10 +366,16 @@ class UnitreeAudioBackend:
 
         assert self._unitree_audio_client is not None
         with self._unitree_play_lock:
-            self._stream_counter += 1
-            stream_id = f"{int(time.time() * 1000)}-{self._stream_counter}"
+            stream_id = str(int(time.time() * 1000))
             chunk_size = 96_000
             offset = 0
+            bytes_per_second = 16000 * 2
+            tail_guard_seconds = 0.25
+            playback_deadline = time.monotonic() + (len(pcm_bytes) / bytes_per_second)
+            try:
+                self._unitree_audio_client.PlayStop(self._unitree_stream_name)
+            except Exception:  # pylint: disable=broad-except
+                pass
             while offset < len(pcm_bytes):
                 chunk = pcm_bytes[offset : offset + chunk_size]
                 ret = self._unitree_audio_client.PlayStream(
@@ -359,6 +386,16 @@ class UnitreeAudioBackend:
                 if self._extract_call_code(ret) != 0:
                     return False
                 offset += len(chunk)
+                # Keep Unitree stream pacing conservative: at least sample's 1.0s sleep,
+                # but never faster than the PCM duration represented by this chunk.
+                chunk_duration_s = len(chunk) / bytes_per_second
+                time.sleep(max(1.0, chunk_duration_s))
+
+            # Keep this call blocking until the streamed audio duration has elapsed.
+            remaining = playback_deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+            time.sleep(tail_guard_seconds)
             return True
 
     def _record_utterance_via_multicast(self) -> np.ndarray:
@@ -485,7 +522,7 @@ class UnitreeAudioBackend:
                     "ALWIN_UNITREE_NET_IFACE is required in Unitree network mode"
                 )
 
-        if self._network_mode:
+        if self._network_mode and not self._use_local_mic:
             pass
         else:
             errors.extend(self._check_local_input_device())
@@ -498,7 +535,7 @@ class UnitreeAudioBackend:
         return errors
 
     def record_utterance(self) -> np.ndarray:
-        if self._network_mode:
+        if self._network_mode and not self._use_local_mic:
             recorded = self._record_utterance_via_multicast()
             if (
                 recorded.size == 0
@@ -575,7 +612,7 @@ class UnitreeAudioBackend:
         )
         mic_path = (
             f"network multicast {self._config.unitree_multicast_group}:{self._config.unitree_multicast_port}"
-            if self._network_mode
+            if self._network_mode and not self._use_local_mic
             else "local sounddevice input"
         )
 

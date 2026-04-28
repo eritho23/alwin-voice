@@ -135,6 +135,21 @@ class TestSettings(unittest.TestCase):
             else:
                 os.environ.pop("ALWIN_SILERO_MIN_SILENCE_MS", None)
 
+    def test_load_config_unitree_local_mic_default_and_env(self) -> None:
+        original = os.environ.pop("ALWIN_UNITREE_LOCAL_MIC", None)
+        try:
+            cfg = load_config()
+            self.assertFalse(cfg.unitree_local_mic)
+
+            os.environ["ALWIN_UNITREE_LOCAL_MIC"] = "true"
+            cfg = load_config()
+            self.assertTrue(cfg.unitree_local_mic)
+        finally:
+            if original is not None:
+                os.environ["ALWIN_UNITREE_LOCAL_MIC"] = original
+            else:
+                os.environ.pop("ALWIN_UNITREE_LOCAL_MIC", None)
+
 
 if __name__ == "__main__":
     unittest.main()
