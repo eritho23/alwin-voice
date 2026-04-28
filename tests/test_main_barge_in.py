@@ -76,11 +76,13 @@ class _FakeLLM:
 
 
 class _FakePiperEngine:
+    synthesized_texts: list[str] = []
+
     def __init__(self, config: object) -> None:
         self.config = config
 
     def synthesize_to_wav(self, chunk: str) -> Path:
-        del chunk
+        self.synthesized_texts.append(chunk)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as handle:
             return Path(handle.name)
 
@@ -222,6 +224,7 @@ class TestMainBargeIn(unittest.TestCase):
     def test_non_question_normal_turn_is_not_filtered(self) -> None:
         fake_audio = _NoBargeAudio()
         fake_context = _FakeContext(max_turns=12)
+        _FakePiperEngine.synthesized_texts = []
 
         cfg = AppConfig(
             ollama_endpoint="http://127.0.0.1:11434",
@@ -278,6 +281,7 @@ class TestMainBargeIn(unittest.TestCase):
         self.assertEqual(fake_audio.playback_stops, 0)
         self.assertEqual(fake_context.users, ["det här är ett påstående"])
         self.assertEqual(fake_context.assistants, ["Det blir avbrutet."])
+        self.assertEqual(_FakePiperEngine.synthesized_texts, ["Det blir avbrutet."])
 
     def test_non_question_barge_in_candidate_is_ignored(self) -> None:
         fake_audio = _FakeAudio()
