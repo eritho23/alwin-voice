@@ -144,12 +144,8 @@ def run_audio_selftest(
         return 2
 
     try:
-        print(f"- Microphone test: capture {duration_seconds:.1f}s")
-        mic_audio = _capture_mic_sample(
-            sample_rate=config.audio_sample_rate,
-            channels=config.audio_channels,
-            duration_seconds=duration_seconds,
-        )
+        print(f"- Microphone test: backend capture (target {duration_seconds:.1f}s)")
+        mic_audio = audio.record_utterance()
     except Exception as exc:  # pylint: disable=broad-except
         print(f"Audio self-test microphone failure: {exc}", file=sys.stderr)
         return 2

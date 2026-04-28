@@ -34,8 +34,15 @@ from alwin_voice.main import main, run_audio_selftest
 
 
 class _FakeAudio:
-    def __init__(self, check_errors: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        check_errors: list[str] | None = None,
+        mic_audio: np.ndarray | None = None,
+    ) -> None:
         self._check_errors = check_errors or []
+        self._mic_audio = (
+            mic_audio if mic_audio is not None else np.ones(16000, dtype=np.float32) * 0.02
+        )
         self.start_count = 0
         self.end_count = 0
         self.wav_count = 0
@@ -61,7 +68,7 @@ class _FakeAudio:
         self.wav_count += 1
 
     def record_utterance(self) -> np.ndarray:
-        return np.array([], dtype=np.float32)
+        return self._mic_audio
 
     def stop_playback(self) -> None:
         return None
@@ -107,22 +114,24 @@ def _cfg() -> AppConfig:
         tts_speaker=None,
         tts_length_scale=1.0,
         audio_backend="local",
+        unitree_network_mode=False,
+        unitree_net_iface=None,
+        unitree_multicast_group="239.168.123.161",
+        unitree_multicast_port=5555,
+        unitree_multicast_local_ip=None,
+        unitree_mic_timeout_seconds=2.0,
     )
 
 
 class TestMainAudioSelftest(unittest.TestCase):
     def test_run_audio_selftest_success(self) -> None:
-        audio = _FakeAudio()
-        with patch(
-            "alwin_voice.main._capture_mic_sample",
-            return_value=np.ones(16000, dtype=np.float32) * 0.02,
-        ):
-            result = run_audio_selftest(
-                config=_cfg(),
-                audio=audio,
-                notes=["note"],
-                duration_seconds=1.0,
-            )
+        audio = _FakeAudio(mic_audio=np.ones(16000, dtype=np.float32) * 0.02)
+        result = run_audio_selftest(
+            config=_cfg(),
+            audio=audio,
+            notes=["note"],
+            duration_seconds=1.0,
+        )
 
         self.assertEqual(result, 0)
         self.assertEqual(audio.start_count, 1)
@@ -130,17 +139,13 @@ class TestMainAudioSelftest(unittest.TestCase):
         self.assertEqual(audio.wav_count, 1)
 
     def test_run_audio_selftest_fails_on_silent_mic(self) -> None:
-        audio = _FakeAudio()
-        with patch(
-            "alwin_voice.main._capture_mic_sample",
-            return_value=np.zeros(16000, dtype=np.float32),
-        ):
-            result = run_audio_selftest(
-                config=_cfg(),
-                audio=audio,
-                notes=[],
-                duration_seconds=1.0,
-            )
+        audio = _FakeAudio(mic_audio=np.zeros(16000, dtype=np.float32))
+        result = run_audio_selftest(
+            config=_cfg(),
+            audio=audio,
+            notes=[],
+            duration_seconds=1.0,
+        )
 
         self.assertEqual(result, 2)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,12 @@ class AppConfig:
     tts_speaker: int | None
     tts_length_scale: float
     audio_backend: str
+    unitree_network_mode: bool
+    unitree_net_iface: str | None
+    unitree_multicast_group: str
+    unitree_multicast_port: int
+    unitree_multicast_local_ip: str | None
+    unitree_mic_timeout_seconds: float
 
 
 def _env_int(name: str, default: int) -> int:
@@ -67,11 +74,22 @@ def _env_optional_path(name: str) -> Path | None:
     return Path(value).expanduser()
 
 
+def _default_piper_model_path() -> Path:
+    preferred = Path("./models/piper/sv_SE-nst-medium.onnx")
+    if preferred.exists():
+        return preferred
+
+    fallback = Path("./models/piper/sv_SE-alma-medium.onnx")
+    if fallback.exists():
+        return fallback
+
+    return preferred
+
+
 def load_config() -> AppConfig:
     default_piper_bin = "piper.exe" if os.name == "nt" else "piper"
-    model_path = Path(
-        os.getenv("ALWIN_PIPER_MODEL", "./models/piper/sv_SE-nst-medium.onnx")
-    ).expanduser()
+    model_path = _env_optional_path("ALWIN_PIPER_MODEL") or _default_piper_model_path()
+    model_path = model_path.expanduser()
     cpu_mode = _env_bool("ALWIN_CPU_MODE", False)
 
     return AppConfig(
@@ -113,6 +131,16 @@ def load_config() -> AppConfig:
         ),
         tts_length_scale=_env_float("ALWIN_TTS_LENGTH_SCALE", 1.0),
         audio_backend=os.getenv("ALWIN_AUDIO_BACKEND", "auto").lower(),
+        unitree_network_mode=_env_bool("ALWIN_UNITREE_NETWORK_MODE", False),
+        unitree_net_iface=(os.getenv("ALWIN_UNITREE_NET_IFACE") or "").strip() or None,
+        unitree_multicast_group=os.getenv(
+            "ALWIN_UNITREE_MULTICAST_GROUP", "239.168.123.161"
+        ),
+        unitree_multicast_port=_env_int("ALWIN_UNITREE_MULTICAST_PORT", 5555),
+        unitree_multicast_local_ip=(
+            (os.getenv("ALWIN_UNITREE_MULTICAST_LOCAL_IP") or "").strip() or None
+        ),
+        unitree_mic_timeout_seconds=_env_float("ALWIN_UNITREE_MIC_TIMEOUT_SECONDS", 2.0),
     )
 
 
@@ -175,5 +203,27 @@ def validate_config(config: AppConfig) -> list[str]:
 
     if config.audio_backend not in {"auto", "unitree", "local"}:
         errors.append("ALWIN_AUDIO_BACKEND must be one of: auto, unitree, local")
+
+    if config.unitree_multicast_port < 1 or config.unitree_multicast_port > 65535:
+        errors.append("ALWIN_UNITREE_MULTICAST_PORT must be between 1 and 65535")
+
+    try:
+        socket.inet_aton(config.unitree_multicast_group)
+    except OSError:
+        errors.append("ALWIN_UNITREE_MULTICAST_GROUP must be a valid IPv4 address")
+
+    if config.unitree_multicast_local_ip:
+        try:
+            socket.inet_aton(config.unitree_multicast_local_ip)
+        except OSError:
+            errors.append(
+                "ALWIN_UNITREE_MULTICAST_LOCAL_IP must be a valid IPv4 address"
+            )
+
+    if config.unitree_mic_timeout_seconds <= 0:
+        errors.append("ALWIN_UNITREE_MIC_TIMEOUT_SECONDS must be > 0")
+
+    if config.unitree_network_mode and config.audio_sample_rate != 16000:
+        errors.append("Unitree network mic path requires ALWIN_AUDIO_SAMPLE_RATE=16000")
 
     return errors

@@ -193,6 +193,12 @@ class TestMainBargeIn(unittest.TestCase):
             tts_speaker=None,
             tts_length_scale=1.0,
             audio_backend="local",
+            unitree_network_mode=False,
+            unitree_net_iface=None,
+            unitree_multicast_group="239.168.123.161",
+            unitree_multicast_port=5555,
+            unitree_multicast_local_ip=None,
+            unitree_mic_timeout_seconds=2.0,
         )
 
         with patch(
@@ -256,6 +262,12 @@ class TestMainBargeIn(unittest.TestCase):
             tts_speaker=None,
             tts_length_scale=1.0,
             audio_backend="local",
+            unitree_network_mode=False,
+            unitree_net_iface=None,
+            unitree_multicast_group="239.168.123.161",
+            unitree_multicast_port=5555,
+            unitree_multicast_local_ip=None,
+            unitree_mic_timeout_seconds=2.0,
         )
 
         with patch(
@@ -317,6 +329,12 @@ class TestMainBargeIn(unittest.TestCase):
             tts_speaker=None,
             tts_length_scale=1.0,
             audio_backend="local",
+            unitree_network_mode=False,
+            unitree_net_iface=None,
+            unitree_multicast_group="239.168.123.161",
+            unitree_multicast_port=5555,
+            unitree_multicast_local_ip=None,
+            unitree_mic_timeout_seconds=2.0,
         )
 
         with patch(
