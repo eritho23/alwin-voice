@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import queue
-import re
 import subprocess
 import sys
 import tempfile
@@ -61,15 +59,6 @@ def _print_acceleration_info(config: AppConfig) -> None:
     print(f"- STT (faster-whisper): {stt_mode}")
     print("- LLM (Ollama): managed by Ollama runtime")
     print("- TTS (Piper): CPU path in current implementation")
-
-
-def _extract_complete_sentences(text: str) -> tuple[list[str], str]:
-    parts = re.split(r"(?<=[.!?])\s+", text)
-    if len(parts) <= 1:
-        return [], text
-    completed = [p.strip() for p in parts[:-1] if p.strip()]
-    remainder = parts[-1]
-    return completed, remainder
 
 
 def _rms_level(audio: np.ndarray) -> float:
@@ -180,35 +169,49 @@ def run_audio_selftest(
     return 0
 
 
-def _tts_worker(
+def _play_tts_response(
     tts: PiperEngine,
     audio: AudioBackend,
-    tts_queue: queue.Queue[str | None],
-    stop_event: threading.Event,
-) -> None:
-    while True:
-        if stop_event.is_set():
-            break
-        try:
-            chunk = tts_queue.get(timeout=0.1)
-        except queue.Empty:
-            continue
-        if chunk is None:
-            break
-        if not chunk.strip():
-            continue
+    transcriber: FasterWhisperTranscriber,
+    config: AppConfig,
+    reply: str,
+) -> bool:
+    if not reply.strip():
+        return False
 
-        wav_path: Path | None = None
-        try:
-            wav_path = tts.synthesize_to_wav(chunk)
-            if stop_event.is_set():
-                continue
-            audio.play_wav_file(wav_path)
-        except Exception as exc:  # pylint: disable=broad-except
-            print(f"TTS error: {exc}", file=sys.stderr)
-        finally:
-            if wav_path and wav_path.exists():
-                wav_path.unlink(missing_ok=True)
+    wav_path: Path | None = None
+    playback_error: Exception | None = None
+
+    try:
+        wav_path = tts.synthesize_to_wav(reply)
+
+        def _playback_target() -> None:
+            nonlocal playback_error
+            try:
+                audio.play_wav_file(wav_path)
+            except Exception as exc:  # pylint: disable=broad-except
+                playback_error = exc
+
+        playback_thread = threading.Thread(target=_playback_target, daemon=True)
+        playback_thread.start()
+
+        while playback_thread.is_alive():
+            playback_thread.join(timeout=0.1)
+            if audio.barge_in_detected():
+                candidate = _confirm_interrupt_text(audio, transcriber, config)
+                if is_clear_question_or_clarification(candidate):
+                    return True
+                if candidate:
+                    print(f"Ignoring non-question interruption candidate: {candidate}")
+                audio.start_barge_in_monitor()
+
+        if playback_error is not None:
+            raise playback_error
+
+        return False
+    finally:
+        if wav_path and wav_path.exists():
+            wav_path.unlink(missing_ok=True)
 
 
 def _confirm_interrupt_text(
@@ -256,9 +259,6 @@ def run_chat_loop(config: AppConfig) -> None:
         "Voice chat started. Speak while assistant is talking to interrupt and listen again; press Ctrl+C while listening/processing to stop."
     )
     while True:
-        tts_queue: queue.Queue[str | None] | None = None
-        stop_tts_event: threading.Event | None = None
-        worker: threading.Thread | None = None
         assistant_phase = False
         try:
             audio.play_listen_start()
@@ -281,17 +281,7 @@ def run_chat_loop(config: AppConfig) -> None:
             context.add_user(stt.text)
             messages = context.as_ollama_messages(system_prompt=config.system_prompt)
 
-            tts_queue: queue.Queue[str | None] = queue.Queue()
-            stop_tts_event = threading.Event()
-            worker = threading.Thread(
-                target=_tts_worker,
-                args=(tts, audio, tts_queue, stop_tts_event),
-                daemon=True,
-            )
-            worker.start()
-
             reply_parts: list[str] = []
-            sentence_buffer = ""
 
             print("Assistant: ", end="", flush=True)
             assistant_phase = True
@@ -313,13 +303,6 @@ def run_chat_loop(config: AppConfig) -> None:
 
                     print(token, end="", flush=True)
                     reply_parts.append(token)
-                    sentence_buffer += token
-
-                    ready, sentence_buffer = _extract_complete_sentences(
-                        sentence_buffer
-                    )
-                    for sentence in ready:
-                        tts_queue.put(sentence)
 
                 print()
 
@@ -327,34 +310,16 @@ def run_chat_loop(config: AppConfig) -> None:
                     if hasattr(stream, "close"):
                         stream.close()
                 else:
-                    if sentence_buffer.strip():
-                        tts_queue.put(sentence_buffer.strip())
-
-                    tts_queue.put(None)
-                    while worker.is_alive():
-                        worker.join(timeout=0.1)
-                        if audio.barge_in_detected():
-                            candidate = _confirm_interrupt_text(
-                                audio, transcriber, config
-                            )
-                            if is_clear_question_or_clarification(candidate):
-                                interrupted_by_voice = True
-                                break
-                            if candidate:
-                                print(
-                                    "Ignoring non-question interruption candidate: "
-                                    f"{candidate}"
-                                )
-                            audio.start_barge_in_monitor()
+                    interrupted_by_voice = _play_tts_response(
+                        tts=tts,
+                        audio=audio,
+                        transcriber=transcriber,
+                        config=config,
+                        reply="".join(reply_parts),
+                    )
 
                 if interrupted_by_voice:
-                    if stop_tts_event is not None:
-                        stop_tts_event.set()
-                    if tts_queue is not None:
-                        tts_queue.put(None)
                     audio.stop_playback()
-                    if worker.is_alive():
-                        worker.join(timeout=1)
                     print("Assistant interrupted by speech. Listening again...")
                     continue
             finally:
@@ -370,23 +335,11 @@ def run_chat_loop(config: AppConfig) -> None:
             if not assistant_phase:
                 raise
 
-            if stop_tts_event is not None:
-                stop_tts_event.set()
-            if tts_queue is not None:
-                tts_queue.put(None)
             audio.stop_playback()
-            if worker is not None and worker.is_alive():
-                worker.join(timeout=1)
             print("\nAssistant interrupted. Listening again...")
             continue
         except Exception as exc:  # pylint: disable=broad-except
             print(f"\nLLM error: {exc}", file=sys.stderr)
-            if stop_tts_event is not None:
-                stop_tts_event.set()
-            if tts_queue is not None:
-                tts_queue.put(None)
-            if worker is not None and worker.is_alive():
-                worker.join(timeout=2)
             continue
 
 

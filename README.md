@@ -81,10 +81,10 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_CONTEXT_TURNS` default: `12`
 - `ALWIN_AUDIO_BACKEND` default: `auto` (`auto`, `unitree`, `local`)
 - `ALWIN_UNITREE_NETWORK_MODE` default: `false` (set `true` when running on an external PC connected to G1 over network)
-- `ALWIN_UNITREE_NET_IFACE` optional network interface used for Unitree channel init (required in network mode)
-- `ALWIN_UNITREE_MULTICAST_GROUP` default: `239.168.123.161` (G1 microphone multicast group)
-- `ALWIN_UNITREE_MULTICAST_PORT` default: `5555` (G1 microphone multicast port)
-- `ALWIN_UNITREE_MULTICAST_LOCAL_IP` optional local IPv4 to join multicast with (default `0.0.0.0`)
+- `ALWIN_UNITREE_NET_IFACE` optional network interface used for Unitree channel init (required in network mode). E.g., `enp0s1`. This sets up the control channel but does not affect the multicast socket routing.
+- `ALWIN_UNITREE_MULTICAST_GROUP` default: `239.168.123.161` (G1 microphone multicast group). Must be a valid Class D multicast IP.
+- `ALWIN_UNITREE_MULTICAST_PORT` default: `5555` (G1 microphone multicast port).
+- `ALWIN_UNITREE_MULTICAST_LOCAL_IP` optional local IPv4 to join multicast with (default `0.0.0.0`). Set this to the IP of your computer running this code on the robot's network (e.g., `192.168.123.222`). This is crucial to ensure the OS routes the multicast subscription correctly!
 - `ALWIN_UNITREE_MIC_TIMEOUT_SECONDS` default: `2.0` (no-packet timeout before mic capture fails in network mode)
 
 Example:
@@ -206,6 +206,29 @@ pip install unitree-sdk2
 
 Depending on image/runtime, you may also need CycloneDDS and `CYCLONEDDS_HOME`
 as documented by Unitree SDK2 Python.
+
+## Troubleshooting
+
+### Unitree G1 Microphone Multicast Issues (Network Mode)
+
+If the robot operates normally but your Python application on an external computer receives no audio (times out gathering mic packets), it is usually caused by the OS silently rejecting the robot's multicast packets.
+
+**1. Explicitly Set `ALWIN_UNITREE_MULTICAST_LOCAL_IP`**
+You are required to provide `ALWIN_UNITREE_NET_IFACE` (e.g. `enp0s1`) to initialize the Unitree C++ SDK. Make sure you _also_ provide `ALWIN_UNITREE_MULTICAST_LOCAL_IP` with your control computer's IP address on that network (e.g., `192.168.123.222`). Without it, the underlying Python UDP socket uses `0.0.0.0` to join the `239.x.x.x` multicast group, often routing requests out of the wrong adapter (like your Wi-Fi).
+
+**2. Configure the Firewall**
+On Ubuntu/Linux deployments, local network traffic across a separate ethernet interface can still be halted by an inbound firewall configuration. You must specifically allow `239.168.123.161` on the `5555` port.
+```bash
+sudo ufw allow in on <robot_interface> to 239.168.123.161 port 5555 proto udp
+```
+
+**3. OS-Level Reception Verification (tcpdump)**
+If Python still sees nothing, bypass to the OS level by using `tcpdump`. Since the robot sends "always-on" streams, you should be able to see the packets bypassing even firewall blocks.
+```bash
+sudo tcpdump -i <robot_interface> -n udp port 5555
+```
+If `tcpdump` shows traffic, but Python receives nothing, the OS firewall or reverse path filtering (`rp_filter`) is rejecting the packet. If `tcpdump` is empty, the traffic is never reaching your network adapter.
+
 
 ### NVIDIA cuBLAS note
 
