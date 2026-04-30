@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "alwin-voice"
 version = "0.1.0"
-description = "Single-process STT -> Ollama chat -> Piper TTS pipeline"
+description = "Single-process STT -> Ollama chat -> Chatterbox TTS pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,13 +13,14 @@ dependencies = [
   "sounddevice>=0.4.6",
   "faster-whisper>=1.0.3",
   "requests>=2.31.0",
-  "piper-tts>=1.4.2",
+  "chatterbox-tts>=0.1.7",
   "silero-vad>=5.1.2",
   "unitree-sdk2>=1.0.1",
 ]
 
 [project.scripts]
 alwin-voice = "alwin_voice.main:main"
+alwin-tts-worker = "alwin_voice.tts.worker:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

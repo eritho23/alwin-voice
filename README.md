@@ -4,17 +4,16 @@ Single-process speech chat pipeline in Python:
 
 1. Speech-to-text using `faster-whisper`
 2. Chat with an Ollama model (configurable endpoint + model)
-3. Text-to-speech using Piper (configurable voice model)
+3. Text-to-speech using Chatterbox Multilingual TTS
 4. Immediate playback, with listen start/end tones around recording
 
-Main target language is Swedish (`sv`), with configurable Piper voice model paths so you can swap voices without code changes.
+Main target language is Swedish (`sv`), with optional reference voice cloning via Chatterbox (`ALWIN_TTS_REFERENCE_AUDIO`).
 
 ## Requirements
 
 - Python 3.10+
 - Local Ollama instance running
-- Piper runtime available as command in PATH (default: `piper` on Linux/macOS, `piper.exe` on Windows)
-- Piper Swedish voice model `.onnx` file
+- Chatterbox TTS runtime dependencies (`chatterbox-tts`)
 - Working microphone and speaker
 
 Linux note for audio:
@@ -30,7 +29,14 @@ Windows note for audio:
 
 ## Install
 
-Linux/macOS:
+Recommended (Linux/macOS and Windows with [uv](https://docs.astral.sh/uv/)):
+
+```bash
+uv sync
+uv pip install -e .
+```
+
+Linux/macOS with pip:
 
 ```bash
 python -m venv .venv
@@ -39,7 +45,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-Windows PowerShell:
+Windows PowerShell with pip:
 
 ```powershell
 python -m venv .venv
@@ -60,11 +66,14 @@ All settings are environment-driven for minimal dependencies.
 - `ALWIN_STT_COMPUTE` default: `float16`
 - `ALWIN_CPU_MODE` default: `false` (`true` uses CPU-suitable STT settings for dev/testing)
 - `ALWIN_STT_LANGUAGE` default: `sv`
-- `ALWIN_PIPER_BIN` default: `piper` on Linux/macOS, `piper.exe` on Windows
-- `ALWIN_PIPER_MODEL` default: `./models/piper/sv_SE-nst-medium.onnx` (falls back to `./models/piper/sv_SE-alma-medium.onnx` when present)
-- `ALWIN_PIPER_CONFIG` optional path to Piper config JSON
-- `ALWIN_TTS_SPEAKER` optional speaker id
-- `ALWIN_TTS_LENGTH_SCALE` default: `1.0`
+- `ALWIN_TTS_DEVICE` default: `auto` (`auto`, `cpu`, `cuda`, `mps`)
+- `ALWIN_TTS_LANGUAGE` default: `sv` (Chatterbox multilingual language ID)
+- `ALWIN_TTS_REFERENCE_AUDIO` optional path to a reference voice clip (when omitted, built-in default voice is used)
+- `ALWIN_TTS_EXAGGERATION` default: `0.5`
+- `ALWIN_TTS_CFG_WEIGHT` default: `0.5`
+- `ALWIN_TTS_RUNTIME_MODE` default: `inprocess` (`inprocess`, `remote-stdio`)
+- `ALWIN_TTS_WORKER_COMMAND` required when `ALWIN_TTS_RUNTIME_MODE=remote-stdio` (example: `/path/to/.venv-py314/bin/alwin-tts-worker`)
+- `ALWIN_TTS_WORKER_STARTUP_TIMEOUT_SECONDS` default: `20.0`
 - `ALWIN_AUDIO_SAMPLE_RATE` default: `16000`
 - `ALWIN_AUDIO_BLOCKSIZE` default: `512`
 - `ALWIN_LISTEN_MAX_SECONDS` default: `12.0`
@@ -93,7 +102,8 @@ Example:
 ```bash
 export ALWIN_OLLAMA_ENDPOINT="http://192.168.1.20:11434"
 export ALWIN_OLLAMA_MODEL="qwen2.5:7b"
-export ALWIN_PIPER_MODEL="$PWD/models/piper/sv_SE-alma-medium.onnx"
+export ALWIN_TTS_LANGUAGE="sv"
+export ALWIN_TTS_REFERENCE_AUDIO="$PWD/models/voice-reference.wav"
 export ALWIN_VAD_ENGINE="silero"
 ```
 
@@ -102,7 +112,8 @@ Windows PowerShell example:
 ```powershell
 $env:ALWIN_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
 $env:ALWIN_OLLAMA_MODEL = "qwen2.5:7b"
-$env:ALWIN_PIPER_MODEL = "$PWD\models\piper\sv_SE-alma-medium.onnx"
+$env:ALWIN_TTS_LANGUAGE = "sv"
+$env:ALWIN_TTS_REFERENCE_AUDIO = "$PWD\models\voice-reference.wav"
 $env:ALWIN_CPU_MODE = "true"
 ```
 
@@ -166,8 +177,49 @@ Runtime flow per turn:
 5. End tone plays
 6. Speech is transcribed to text
 7. LLM response is generated with rolling chat context
-8. Piper synthesizes response audio
+8. Chatterbox synthesizes response audio
 9. Response audio plays immediately
+
+## Split runtime for Unitree + RTX 50xx CUDA TTS
+
+If Unitree SDK must run on Python 3.11 while GPU Chatterbox/Torch requires Python 3.14,
+run a split setup:
+
+```bash
+uv venv .venv-py311 --python 3.11
+uv venv .venv-py314 --python 3.14
+
+uv pip install --python .venv-py311/bin/python -e .
+uv pip install --python .venv-py314/bin/python -e .
+```
+
+Run the main app in Python 3.11 with remote stdio mode:
+
+```bash
+export ALWIN_TTS_RUNTIME_MODE="remote-stdio"
+export ALWIN_TTS_WORKER_COMMAND="$PWD/.venv-py314/bin/alwin-tts-worker"
+.venv-py311/bin/alwin-voice
+```
+
+`alwin-voice` launches the worker command as a child process when synthesis is requested.
+
+### Startup example (Unitree network + split TTS runtime)
+
+Use this when running Unitree from Python 3.11 and Chatterbox GPU TTS from Python 3.14:
+
+```bash
+ALWIN_OLLAMA_ENDPOINT="http://10.22.1.100:11434" \
+ALWIN_OLLAMA_MODEL="gpt-oss:20b" \
+ALWIN_CPU_MODE="true" \
+ALWIN_AUDIO_BACKEND="unitree" \
+ALWIN_UNITREE_NETWORK_MODE="true" \
+ALWIN_UNITREE_NET_IFACE="enp129s0" \
+ALWIN_UNITREE_LOCAL_MIC="true" \
+ALWIN_TTS_RUNTIME_MODE="remote-stdio" \
+ALWIN_TTS_WORKER_COMMAND="$PWD/.venv-py314/bin/python -m alwin_voice.tts.worker" \
+PYTHONPATH="/opt/unitree_sdk2_python:$PWD/src" \
+.venv-py311/bin/python -m alwin_voice.main
+```
 
 ## Unitree backend
 
@@ -254,4 +306,4 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 - The implementation is intentionally single-process and synchronous for operational simplicity.
 - Context is a rolling window of the latest turns to support conversational follow-up.
-- You can switch Swedish voices by changing only `ALWIN_PIPER_MODEL` (and optional `ALWIN_PIPER_CONFIG`).
+- You can keep default Swedish voice, or set `ALWIN_TTS_REFERENCE_AUDIO` to clone from a reference clip.

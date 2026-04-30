@@ -93,9 +93,11 @@ def _cfg() -> AppConfig:
         stt_device="cpu",
         stt_compute_type="float16",
         stt_language="sv",
-        piper_executable="piper",
-        piper_model_path=Path("/tmp/missing-model.onnx"),
-        piper_config_path=None,
+        tts_device="cpu",
+        tts_language="sv",
+        tts_reference_audio_path=None,
+        tts_exaggeration=0.5,
+        tts_cfg_weight=0.5,
         audio_sample_rate=16000,
         audio_channels=1,
         audio_blocksize=512,
@@ -111,8 +113,6 @@ def _cfg() -> AppConfig:
         silero_min_silence_ms=150,
         silero_speech_pad_ms=20,
         context_turns=12,
-        tts_speaker=None,
-        tts_length_scale=1.0,
         audio_backend="local",
         unitree_network_mode=False,
         unitree_net_iface=None,
@@ -150,7 +150,7 @@ class TestMainAudioSelftest(unittest.TestCase):
 
         self.assertEqual(result, 2)
 
-    def test_main_audio_selftest_skips_ollama_and_piper_validation(self) -> None:
+    def test_main_audio_selftest_skips_ollama_and_tts_validation(self) -> None:
         audio = _FakeAudio()
 
         args = argparse.Namespace(

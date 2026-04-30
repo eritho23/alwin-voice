@@ -1,10 +1,35 @@
 from __future__ import annotations
 
 import os
-import shutil
 import socket
 from dataclasses import dataclass
 from pathlib import Path
+
+SUPPORTED_TTS_LANGUAGES = {
+    "ar",
+    "da",
+    "de",
+    "el",
+    "en",
+    "es",
+    "fi",
+    "fr",
+    "he",
+    "hi",
+    "it",
+    "ja",
+    "ko",
+    "ms",
+    "nl",
+    "no",
+    "pl",
+    "pt",
+    "ru",
+    "sv",
+    "sw",
+    "tr",
+    "zh",
+}
 
 
 @dataclass(slots=True)
@@ -17,9 +42,11 @@ class AppConfig:
     stt_device: str
     stt_compute_type: str
     stt_language: str
-    piper_executable: str
-    piper_model_path: Path
-    piper_config_path: Path | None
+    tts_device: str
+    tts_language: str
+    tts_reference_audio_path: Path | None
+    tts_exaggeration: float
+    tts_cfg_weight: float
     audio_sample_rate: int
     audio_channels: int
     audio_blocksize: int
@@ -35,8 +62,6 @@ class AppConfig:
     silero_min_silence_ms: int
     silero_speech_pad_ms: int
     context_turns: int
-    tts_speaker: int | None
-    tts_length_scale: float
     audio_backend: str
     unitree_network_mode: bool
     unitree_net_iface: str | None
@@ -45,6 +70,9 @@ class AppConfig:
     unitree_multicast_local_ip: str | None
     unitree_mic_timeout_seconds: float
     unitree_local_mic: bool
+    tts_runtime_mode: str = "inprocess"
+    tts_worker_command: str | None = None
+    tts_worker_startup_timeout_seconds: float = 20.0
 
 
 def _env_int(name: str, default: int) -> int:
@@ -75,22 +103,7 @@ def _env_optional_path(name: str) -> Path | None:
     return Path(value).expanduser()
 
 
-def _default_piper_model_path() -> Path:
-    preferred = Path("./models/piper/sv_SE-nst-medium.onnx")
-    if preferred.exists():
-        return preferred
-
-    fallback = Path("./models/piper/sv_SE-alma-medium.onnx")
-    if fallback.exists():
-        return fallback
-
-    return preferred
-
-
 def load_config() -> AppConfig:
-    default_piper_bin = "piper.exe" if os.name == "nt" else "piper"
-    model_path = _env_optional_path("ALWIN_PIPER_MODEL") or _default_piper_model_path()
-    model_path = model_path.expanduser()
     cpu_mode = _env_bool("ALWIN_CPU_MODE", False)
 
     return AppConfig(
@@ -107,9 +120,11 @@ def load_config() -> AppConfig:
             "int8" if cpu_mode else os.getenv("ALWIN_STT_COMPUTE", "float16")
         ),
         stt_language=os.getenv("ALWIN_STT_LANGUAGE", "sv"),
-        piper_executable=os.getenv("ALWIN_PIPER_BIN", default_piper_bin),
-        piper_model_path=model_path,
-        piper_config_path=_env_optional_path("ALWIN_PIPER_CONFIG"),
+        tts_device=os.getenv("ALWIN_TTS_DEVICE", "auto").lower(),
+        tts_language=os.getenv("ALWIN_TTS_LANGUAGE", "sv").lower(),
+        tts_reference_audio_path=_env_optional_path("ALWIN_TTS_REFERENCE_AUDIO"),
+        tts_exaggeration=_env_float("ALWIN_TTS_EXAGGERATION", 0.5),
+        tts_cfg_weight=_env_float("ALWIN_TTS_CFG_WEIGHT", 0.5),
         audio_sample_rate=_env_int("ALWIN_AUDIO_SAMPLE_RATE", 16000),
         audio_channels=_env_int("ALWIN_AUDIO_CHANNELS", 1),
         audio_blocksize=_env_int("ALWIN_AUDIO_BLOCKSIZE", 512),
@@ -125,12 +140,6 @@ def load_config() -> AppConfig:
         silero_min_silence_ms=_env_int("ALWIN_SILERO_MIN_SILENCE_MS", 350),
         silero_speech_pad_ms=_env_int("ALWIN_SILERO_SPEECH_PAD_MS", 20),
         context_turns=_env_int("ALWIN_CONTEXT_TURNS", 12),
-        tts_speaker=(
-            int(os.getenv("ALWIN_TTS_SPEAKER"))
-            if os.getenv("ALWIN_TTS_SPEAKER")
-            else None
-        ),
-        tts_length_scale=_env_float("ALWIN_TTS_LENGTH_SCALE", 1.0),
         audio_backend=os.getenv("ALWIN_AUDIO_BACKEND", "auto").lower(),
         unitree_network_mode=_env_bool("ALWIN_UNITREE_NETWORK_MODE", False),
         unitree_net_iface=(os.getenv("ALWIN_UNITREE_NET_IFACE") or "").strip() or None,
@@ -143,6 +152,11 @@ def load_config() -> AppConfig:
         ),
         unitree_mic_timeout_seconds=_env_float("ALWIN_UNITREE_MIC_TIMEOUT_SECONDS", 2.0),
         unitree_local_mic=_env_bool("ALWIN_UNITREE_LOCAL_MIC", False),
+        tts_runtime_mode=os.getenv("ALWIN_TTS_RUNTIME_MODE", "inprocess").lower(),
+        tts_worker_command=(os.getenv("ALWIN_TTS_WORKER_COMMAND") or "").strip() or None,
+        tts_worker_startup_timeout_seconds=_env_float(
+            "ALWIN_TTS_WORKER_STARTUP_TIMEOUT_SECONDS", 20.0
+        ),
     )
 
 
@@ -158,20 +172,31 @@ def validate_config(config: AppConfig) -> list[str]:
     if config.audio_channels != 1:
         errors.append("Only mono audio is currently supported (ALWIN_AUDIO_CHANNELS=1)")
 
-    if not config.piper_model_path.exists():
+    if config.tts_device not in {"auto", "cpu", "cuda", "mps"}:
         errors.append(
-            f"Piper model not found at {config.piper_model_path}. Set ALWIN_PIPER_MODEL."
+            "ALWIN_TTS_DEVICE must be one of: auto, cpu, cuda, mps"
         )
 
-    if config.piper_config_path and not config.piper_config_path.exists():
+    if config.tts_language not in SUPPORTED_TTS_LANGUAGES:
+        supported = ", ".join(sorted(SUPPORTED_TTS_LANGUAGES))
         errors.append(
-            f"Piper config not found at {config.piper_config_path}. Set ALWIN_PIPER_CONFIG."
+            f"ALWIN_TTS_LANGUAGE must be one of: {supported}"
         )
 
-    if shutil.which(config.piper_executable) is None:
+    if (
+        config.tts_reference_audio_path
+        and not config.tts_reference_audio_path.expanduser().exists()
+    ):
         errors.append(
-            f"Piper executable '{config.piper_executable}' was not found in PATH."
+            f"TTS reference audio not found at {config.tts_reference_audio_path}. "
+            "Set ALWIN_TTS_REFERENCE_AUDIO to an existing file."
         )
+
+    if config.tts_exaggeration < 0:
+        errors.append("ALWIN_TTS_EXAGGERATION must be >= 0")
+
+    if config.tts_cfg_weight < 0:
+        errors.append("ALWIN_TTS_CFG_WEIGHT must be >= 0")
 
     if config.listen_max_seconds <= 0:
         errors.append("ALWIN_LISTEN_MAX_SECONDS must be > 0")
@@ -227,5 +252,18 @@ def validate_config(config: AppConfig) -> list[str]:
 
     if config.unitree_network_mode and config.audio_sample_rate != 16000:
         errors.append("Unitree network mic path requires ALWIN_AUDIO_SAMPLE_RATE=16000")
+
+    if config.tts_runtime_mode not in {"inprocess", "remote-stdio"}:
+        errors.append(
+            "ALWIN_TTS_RUNTIME_MODE must be one of: inprocess, remote-stdio"
+        )
+
+    if config.tts_runtime_mode == "remote-stdio" and not config.tts_worker_command:
+        errors.append(
+            "ALWIN_TTS_WORKER_COMMAND is required when ALWIN_TTS_RUNTIME_MODE=remote-stdio"
+        )
+
+    if config.tts_worker_startup_timeout_seconds <= 0:
+        errors.append("ALWIN_TTS_WORKER_STARTUP_TIMEOUT_SECONDS must be > 0")
 
     return errors

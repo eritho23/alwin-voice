@@ -75,7 +75,7 @@ class _FakeLLM:
         yield " blir avbrutet."
 
 
-class _FakePiperEngine:
+class _FakeChatterboxEngine:
     synthesized_texts: list[str] = []
 
     def __init__(self, config: object) -> None:
@@ -172,9 +172,11 @@ class TestMainBargeIn(unittest.TestCase):
             stt_device="cpu",
             stt_compute_type="float16",
             stt_language="sv",
-            piper_executable="piper",
-            piper_model_path=Path("/tmp/model.onnx"),
-            piper_config_path=None,
+            tts_device="cpu",
+            tts_language="sv",
+            tts_reference_audio_path=None,
+            tts_exaggeration=0.5,
+            tts_cfg_weight=0.5,
             audio_sample_rate=16000,
             audio_channels=1,
             audio_blocksize=512,
@@ -190,8 +192,6 @@ class TestMainBargeIn(unittest.TestCase):
             silero_min_silence_ms=150,
             silero_speech_pad_ms=20,
             context_turns=12,
-            tts_speaker=None,
-            tts_length_scale=1.0,
             audio_backend="local",
             unitree_network_mode=False,
             unitree_net_iface=None,
@@ -216,7 +216,8 @@ class TestMainBargeIn(unittest.TestCase):
                         "alwin_voice.main.OllamaClient", return_value=_FakeLLM()
                     ):
                         with patch(
-                            "alwin_voice.main.PiperEngine", side_effect=_FakePiperEngine
+                            "alwin_voice.main.build_tts_backend",
+                            return_value=_FakeChatterboxEngine(config=None),
                         ):
                             with self.assertRaises(KeyboardInterrupt):
                                 run_chat_loop(cfg)
@@ -231,7 +232,7 @@ class TestMainBargeIn(unittest.TestCase):
     def test_non_question_normal_turn_is_not_filtered(self) -> None:
         fake_audio = _NoBargeAudio()
         fake_context = _FakeContext(max_turns=12)
-        _FakePiperEngine.synthesized_texts = []
+        _FakeChatterboxEngine.synthesized_texts = []
 
         cfg = AppConfig(
             ollama_endpoint="http://127.0.0.1:11434",
@@ -242,9 +243,11 @@ class TestMainBargeIn(unittest.TestCase):
             stt_device="cpu",
             stt_compute_type="float16",
             stt_language="sv",
-            piper_executable="piper",
-            piper_model_path=Path("/tmp/model.onnx"),
-            piper_config_path=None,
+            tts_device="cpu",
+            tts_language="sv",
+            tts_reference_audio_path=None,
+            tts_exaggeration=0.5,
+            tts_cfg_weight=0.5,
             audio_sample_rate=16000,
             audio_channels=1,
             audio_blocksize=512,
@@ -260,8 +263,6 @@ class TestMainBargeIn(unittest.TestCase):
             silero_min_silence_ms=150,
             silero_speech_pad_ms=20,
             context_turns=12,
-            tts_speaker=None,
-            tts_length_scale=1.0,
             audio_backend="local",
             unitree_network_mode=False,
             unitree_net_iface=None,
@@ -286,7 +287,8 @@ class TestMainBargeIn(unittest.TestCase):
                         "alwin_voice.main.OllamaClient", return_value=_FakeLLM()
                     ):
                         with patch(
-                            "alwin_voice.main.PiperEngine", side_effect=_FakePiperEngine
+                            "alwin_voice.main.build_tts_backend",
+                            return_value=_FakeChatterboxEngine(config=None),
                         ):
                             with self.assertRaises(KeyboardInterrupt):
                                 run_chat_loop(cfg)
@@ -295,7 +297,7 @@ class TestMainBargeIn(unittest.TestCase):
         self.assertEqual(fake_audio.playback_stops, 0)
         self.assertEqual(fake_context.users, ["det här är ett påstående"])
         self.assertEqual(fake_context.assistants, ["Det blir avbrutet."])
-        self.assertEqual(_FakePiperEngine.synthesized_texts, ["Det blir avbrutet."])
+        self.assertEqual(_FakeChatterboxEngine.synthesized_texts, ["Det blir avbrutet."])
 
     def test_non_question_barge_in_candidate_is_ignored(self) -> None:
         fake_audio = _FakeAudio()
@@ -310,9 +312,11 @@ class TestMainBargeIn(unittest.TestCase):
             stt_device="cpu",
             stt_compute_type="float16",
             stt_language="sv",
-            piper_executable="piper",
-            piper_model_path=Path("/tmp/model.onnx"),
-            piper_config_path=None,
+            tts_device="cpu",
+            tts_language="sv",
+            tts_reference_audio_path=None,
+            tts_exaggeration=0.5,
+            tts_cfg_weight=0.5,
             audio_sample_rate=16000,
             audio_channels=1,
             audio_blocksize=512,
@@ -328,8 +332,6 @@ class TestMainBargeIn(unittest.TestCase):
             silero_min_silence_ms=150,
             silero_speech_pad_ms=20,
             context_turns=12,
-            tts_speaker=None,
-            tts_length_scale=1.0,
             audio_backend="local",
             unitree_network_mode=False,
             unitree_net_iface=None,
@@ -354,7 +356,8 @@ class TestMainBargeIn(unittest.TestCase):
                         "alwin_voice.main.OllamaClient", return_value=_FakeLLM()
                     ):
                         with patch(
-                            "alwin_voice.main.PiperEngine", side_effect=_FakePiperEngine
+                            "alwin_voice.main.build_tts_backend",
+                            return_value=_FakeChatterboxEngine(config=None),
                         ):
                             with self.assertRaises(KeyboardInterrupt):
                                 run_chat_loop(cfg)

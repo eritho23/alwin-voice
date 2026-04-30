@@ -17,7 +17,7 @@ from alwin_voice.interrupts import is_clear_question_or_clarification
 from alwin_voice.llm.client import OllamaClient
 from alwin_voice.llm.context import ConversationContext
 from alwin_voice.stt.transcriber import FasterWhisperTranscriber
-from alwin_voice.tts.piper_engine import PiperConfig, PiperEngine
+from alwin_voice.tts import TTSBackend, build_tts_backend
 
 
 def _print_config_errors(errors: list[str]) -> None:
@@ -58,7 +58,7 @@ def _print_acceleration_info(config: AppConfig) -> None:
     print(f"- NVIDIA GPU: {gpu_status}")
     print(f"- STT (faster-whisper): {stt_mode}")
     print("- LLM (Ollama): managed by Ollama runtime")
-    print("- TTS (Piper): CPU path in current implementation")
+    print(f"- TTS (Chatterbox): {config.tts_device}")
 
 
 def _rms_level(audio: np.ndarray) -> float:
@@ -170,7 +170,7 @@ def run_audio_selftest(
 
 
 def _play_tts_response(
-    tts: PiperEngine,
+    tts: TTSBackend,
     audio: AudioBackend,
     transcriber: FasterWhisperTranscriber,
     config: AppConfig,
@@ -245,15 +245,7 @@ def run_chat_loop(config: AppConfig) -> None:
     )
     context = ConversationContext(max_turns=config.context_turns)
     llm = OllamaClient(endpoint=config.ollama_endpoint, model=config.ollama_model)
-    tts = PiperEngine(
-        PiperConfig(
-            executable=config.piper_executable,
-            model_path=config.piper_model_path,
-            config_path=config.piper_config_path,
-            speaker=config.tts_speaker,
-            length_scale=config.tts_length_scale,
-        )
-    )
+    tts = build_tts_backend(config)
 
     print(
         "Voice chat started. Speak while assistant is talking to interrupt and listen again; press Ctrl+C while listening/processing to stop."
@@ -344,7 +336,7 @@ def run_chat_loop(config: AppConfig) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="STT -> Ollama -> Piper voice loop")
+    parser = argparse.ArgumentParser(description="STT -> Ollama -> Chatterbox voice loop")
     parser.add_argument(
         "--check",
         action="store_true",

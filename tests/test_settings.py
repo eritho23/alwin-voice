@@ -16,43 +16,6 @@ class TestSettings(unittest.TestCase):
             if original is not None:
                 os.environ["ALWIN_CONTEXT_TURNS"] = original
 
-    def test_load_config_model_from_env(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            model = Path(tmp) / "voice.onnx"
-            model.write_bytes(b"x")
-
-            original = os.environ.get("ALWIN_PIPER_MODEL")
-            os.environ["ALWIN_PIPER_MODEL"] = str(model)
-            try:
-                cfg = load_config()
-                self.assertEqual(cfg.piper_model_path, model)
-            finally:
-                if original is None:
-                    os.environ.pop("ALWIN_PIPER_MODEL", None)
-                else:
-                    os.environ["ALWIN_PIPER_MODEL"] = original
-
-    def test_load_config_model_default_falls_back_to_alma(self) -> None:
-        original_env = os.environ.pop("ALWIN_PIPER_MODEL", None)
-        original_cwd = Path.cwd()
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
-                model_dir = root / "models" / "piper"
-                model_dir.mkdir(parents=True)
-                fallback_model = model_dir / "sv_SE-alma-medium.onnx"
-                fallback_model.write_bytes(b"x")
-
-                os.chdir(root)
-                cfg = load_config()
-                self.assertEqual(
-                    cfg.piper_model_path, Path("models/piper/sv_SE-alma-medium.onnx")
-                )
-        finally:
-            os.chdir(original_cwd)
-            if original_env is not None:
-                os.environ["ALWIN_PIPER_MODEL"] = original_env
-
     def test_load_config_cpu_mode_default_and_env(self) -> None:
         original = os.environ.pop("ALWIN_CPU_MODE", None)
         try:
@@ -71,6 +34,36 @@ class TestSettings(unittest.TestCase):
                 os.environ["ALWIN_CPU_MODE"] = original
             else:
                 os.environ.pop("ALWIN_CPU_MODE", None)
+
+    def test_load_config_tts_language_default_and_env(self) -> None:
+        original = os.environ.pop("ALWIN_TTS_LANGUAGE", None)
+        try:
+            cfg = load_config()
+            self.assertEqual(cfg.tts_language, "sv")
+
+            os.environ["ALWIN_TTS_LANGUAGE"] = "fr"
+            cfg = load_config()
+            self.assertEqual(cfg.tts_language, "fr")
+        finally:
+            if original is not None:
+                os.environ["ALWIN_TTS_LANGUAGE"] = original
+            else:
+                os.environ.pop("ALWIN_TTS_LANGUAGE", None)
+
+    def test_load_config_tts_reference_audio_from_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ref = Path(tmp) / "ref.wav"
+            ref.write_bytes(b"x")
+            original = os.environ.get("ALWIN_TTS_REFERENCE_AUDIO")
+            os.environ["ALWIN_TTS_REFERENCE_AUDIO"] = str(ref)
+            try:
+                cfg = load_config()
+                self.assertEqual(cfg.tts_reference_audio_path, ref)
+            finally:
+                if original is None:
+                    os.environ.pop("ALWIN_TTS_REFERENCE_AUDIO", None)
+                else:
+                    os.environ["ALWIN_TTS_REFERENCE_AUDIO"] = original
 
     def test_load_config_vad_preroll_default_and_env(self) -> None:
         original = os.environ.pop("ALWIN_VAD_PREROLL_SECONDS", None)
@@ -149,6 +142,39 @@ class TestSettings(unittest.TestCase):
                 os.environ["ALWIN_UNITREE_LOCAL_MIC"] = original
             else:
                 os.environ.pop("ALWIN_UNITREE_LOCAL_MIC", None)
+
+    def test_load_config_tts_runtime_defaults_and_env(self) -> None:
+        original_mode = os.environ.pop("ALWIN_TTS_RUNTIME_MODE", None)
+        original_cmd = os.environ.pop("ALWIN_TTS_WORKER_COMMAND", None)
+        original_timeout = os.environ.pop("ALWIN_TTS_WORKER_STARTUP_TIMEOUT_SECONDS", None)
+        try:
+            cfg = load_config()
+            self.assertEqual(cfg.tts_runtime_mode, "inprocess")
+            self.assertIsNone(cfg.tts_worker_command)
+            self.assertEqual(cfg.tts_worker_startup_timeout_seconds, 20.0)
+
+            os.environ["ALWIN_TTS_RUNTIME_MODE"] = "remote-stdio"
+            os.environ["ALWIN_TTS_WORKER_COMMAND"] = "python -m alwin_voice.tts.worker"
+            os.environ["ALWIN_TTS_WORKER_STARTUP_TIMEOUT_SECONDS"] = "7.5"
+            cfg = load_config()
+            self.assertEqual(cfg.tts_runtime_mode, "remote-stdio")
+            self.assertEqual(cfg.tts_worker_command, "python -m alwin_voice.tts.worker")
+            self.assertEqual(cfg.tts_worker_startup_timeout_seconds, 7.5)
+        finally:
+            if original_mode is not None:
+                os.environ["ALWIN_TTS_RUNTIME_MODE"] = original_mode
+            else:
+                os.environ.pop("ALWIN_TTS_RUNTIME_MODE", None)
+
+            if original_cmd is not None:
+                os.environ["ALWIN_TTS_WORKER_COMMAND"] = original_cmd
+            else:
+                os.environ.pop("ALWIN_TTS_WORKER_COMMAND", None)
+
+            if original_timeout is not None:
+                os.environ["ALWIN_TTS_WORKER_STARTUP_TIMEOUT_SECONDS"] = original_timeout
+            else:
+                os.environ.pop("ALWIN_TTS_WORKER_STARTUP_TIMEOUT_SECONDS", None)
 
 
 if __name__ == "__main__":
