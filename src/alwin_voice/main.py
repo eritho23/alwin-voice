@@ -18,6 +18,7 @@ from alwin_voice.llm.client import OllamaClient
 from alwin_voice.llm.context import ConversationContext
 from alwin_voice.stt.transcriber import FasterWhisperTranscriber
 from alwin_voice.tts.piper_engine import PiperConfig, PiperEngine
+from alwin_voice.agent import AgentActions
 
 
 def _print_config_errors(errors: list[str]) -> None:
@@ -245,6 +246,7 @@ def run_chat_loop(config: AppConfig) -> None:
     )
     context = ConversationContext(max_turns=config.context_turns)
     llm = OllamaClient(endpoint=config.ollama_endpoint, model=config.ollama_model)
+    agent = AgentActions(config)
     tts = PiperEngine(
         PiperConfig(
             executable=config.piper_executable,
@@ -288,6 +290,7 @@ def run_chat_loop(config: AppConfig) -> None:
             interrupted_by_voice = False
             stream = llm.chat_stream(messages)
             audio.start_barge_in_monitor()
+            shake_hand_triggered = False
             try:
                 for token in stream:
                     if audio.barge_in_detected():
@@ -303,8 +306,17 @@ def run_chat_loop(config: AppConfig) -> None:
 
                     print(token, end="", flush=True)
                     reply_parts.append(token)
+                    
+                    if not shake_hand_triggered and "shakeHand" in "".join(reply_parts):
+                        agent.trigger_shake_hand()
+                        shake_hand_triggered = True
 
                 print()
+
+                # Remove token so the robot doesn't speak it
+                reply_text = "".join(reply_parts)
+                if shake_hand_triggered:
+                    reply_text = reply_text.replace("shakeHand", "").strip()
 
                 if interrupted_by_voice:
                     if hasattr(stream, "close"):
@@ -315,7 +327,7 @@ def run_chat_loop(config: AppConfig) -> None:
                         audio=audio,
                         transcriber=transcriber,
                         config=config,
-                        reply="".join(reply_parts),
+                        reply=reply_text,
                     )
 
                 if interrupted_by_voice:
@@ -325,7 +337,12 @@ def run_chat_loop(config: AppConfig) -> None:
             finally:
                 audio.stop_barge_in_monitor()
 
-            reply = "".join(reply_parts).strip()
+            reply = "".join(reply_parts)
+            if shake_hand_triggered:
+                reply = reply.replace("shakeHand", "").strip()
+            else:
+                reply = reply.strip()
+                
             if not reply:
                 print("Assistant returned empty response.")
                 continue

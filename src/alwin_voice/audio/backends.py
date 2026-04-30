@@ -243,7 +243,6 @@ class UnitreeAudioBackend:
         self._probe = probe_unitree_sdk()
         self._unitree_audio_client: Any | None = None
         self._unitree_stream_name = "alwin_voice"
-        self._unitree_channel_initialized = False
         self._unitree_play_lock = threading.Lock()
         self._network_mode = config.unitree_network_mode
         self._use_local_mic = config.unitree_local_mic
@@ -283,15 +282,9 @@ class UnitreeAudioBackend:
             return False
 
         try:
-            channel_module = importlib.import_module("unitree_sdk2py.core.channel")
-            if not self._unitree_channel_initialized:
-                init_fn = getattr(channel_module, "ChannelFactoryInitialize")
-                iface = self._config.unitree_net_iface or ""
-                if iface:
-                    init_fn(0, iface)
-                else:
-                    init_fn(0)
-                self._unitree_channel_initialized = True
+            from alwin_voice.unitree_utils import initialize_unitree_channel
+            if not initialize_unitree_channel(self._config):
+                return False
 
             audio_module = importlib.import_module(
                 "unitree_sdk2py.g1.audio.g1_audio_client"
